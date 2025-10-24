@@ -9,7 +9,12 @@ from fastapi.staticfiles import StaticFiles
 
 from .storage import init_db, SessionLocal, add_pending_resolution, delete_pending, get_pending, upsert_artist_map
 from .spotify_client import get_authorize_url, exchange_code_for_token, get_spotify_client
-from .tidal_client import get_session as get_tidal_session, get_login_url_and_worker, is_logged_in as tidal_logged_in
+from .tidal_client import (
+    get_session as get_tidal_session,
+    get_login_url_and_worker,
+    is_logged_in as tidal_logged_in,
+    get_login_state as tidal_login_state,
+)
 from .matching import score_artist_match
 
 app = FastAPI(title="MusicSync")
@@ -70,12 +75,19 @@ async def tidal_start():
         "verification_uri": data.get("verification_uri"),
         "user_code": data.get("user_code"),
         "expires_in": data.get("expires_in"),
+        "pending": data.get("pending"),
     })
 
 
 @app.get("/auth/tidal/status")
 async def tidal_status():
-    return JSONResponse({"logged_in": tidal_logged_in()})
+    state = tidal_login_state()
+    return JSONResponse({
+        "logged_in": tidal_logged_in(),
+        "pending": state.get("pending", False),
+        "connected": state.get("connected", False),
+        "error": state.get("error"),
+    })
 
 
 # --- Sync Followed Artists ---

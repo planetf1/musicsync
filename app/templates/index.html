@@ -49,7 +49,18 @@
           async function checkTidal() {
             const resp = await fetch('/auth/tidal/status');
             const data = await resp.json();
-            if (data.logged_in) { if (pollTimer) clearInterval(pollTimer); window.location.reload(); }
+            const div = document.getElementById('tidal-link');
+            if (data.logged_in) {
+              if (pollTimer) clearInterval(pollTimer);
+              div.innerHTML = '<span class="status-connected">TIDAL connected. Refreshing…</span>';
+              window.location.reload();
+              return;
+            }
+            if (data.error) {
+              div.innerHTML = `<span class="status-disconnected">${data.error}</span>`;
+            } else if (data.pending) {
+              div.innerHTML = 'Waiting for TIDAL confirmation…';
+            }
           }
         </script>
       {% endif %}
