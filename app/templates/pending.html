@@ -8,14 +8,21 @@
     <div class="pending-item">
       <h3>{{ p.spotify_name }}</h3>
       <form method="post" action="/resolve/{{ p.id }}">
-        <label for="sel-{{ p.id }}">Choose TIDAL match:</label>
-        <select id="sel-{{ p.id }}" name="tidal_id" onchange="this.form.querySelector('[name=tidal_name]').value=this.options[this.selectedIndex].text.split(' (')[0]">
-          {% for c in p.candidates %}
-            <option value="{{ c.id }}">{{ c.name }} ({{ '%.0f'|format(c.score) }})</option>
-          {% endfor %}
-        </select>
-        <input type="hidden" name="tidal_name" value="{{ p.candidates[0].name if p.candidates else '' }}" />
-        <button type="submit" class="btn">Apply</button>
+        {% if p.candidates and p.candidates|length > 0 %}
+          <label for="sel-{{ p.id }}">Choose TIDAL match:</label>
+          <select id="sel-{{ p.id }}" name="tidal_id" onchange="this.form.querySelector('[name=tidal_name]').value=this.options[this.selectedIndex].text.split(' (')[0]">
+            {% for c in p.candidates %}
+              <option value="{{ c.id }}">{{ c.name }} ({{ '%.0f'|format(c.score) }})</option>
+            {% endfor %}
+          </select>
+          <input type="hidden" name="tidal_name" value="{{ p.candidates[0].name }}" />
+          <button type="submit" class="btn">Apply</button>
+        {% else %}
+          <p>No suggested TIDAL matches found.</p>
+          <p>
+            <a class="btn" href="https://listen.tidal.com/search?q={{ p.spotify_name|urlencode }}" target="_blank">Search on TIDAL</a>
+          </p>
+        {% endif %}
       </form>
     </div>
   {% endfor %}

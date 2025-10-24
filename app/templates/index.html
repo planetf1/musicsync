@@ -67,9 +67,62 @@
     </li>
   </ul>
   <div class="actions">
-    <form method="post" action="/sync/artists">
-      <button type="submit" class="btn" {% if not (spotify_ok and tidal_ok) %}disabled{% endif %}>Sync Followed Artists</button>
-    </form>
+    <button id="btn-sync-artists" class="btn" onclick="startArtistSync()" {% if not (spotify_ok and tidal_ok) %}disabled{% endif %}>Sync Followed Artists</button>
+    <div id="artist-sync-progress" style="margin-top:8px"></div>
+    <script>
+      let artistSyncTimer;
+      async function startArtistSync(){
+        const btn = document.getElementById('btn-sync-artists');
+        const div = document.getElementById('artist-sync-progress');
+        btn.disabled = true;
+        div.textContent = 'Starting sync…';
+        try{
+          const resp = await fetch('/sync/artists/start', {method:'POST'});
+          if(!resp.ok){
+            div.textContent = 'Failed to start sync.';
+            btn.disabled = false;
+            return;
+          }
+          const data = await resp.json();
+          pollArtistSync(data.job_id);
+        }catch(e){
+          div.textContent = 'Error starting sync: ' + e;
+          btn.disabled = false;
+        }
+      }
+      async function pollArtistSync(jobId){
+        if(artistSyncTimer) clearInterval(artistSyncTimer);
+        const div = document.getElementById('artist-sync-progress');
+        const render = async () => {
+          try{
+            const r = await fetch('/sync/artists/status?job_id='+encodeURIComponent(jobId));
+            if(!r.ok){ div.textContent = 'Sync status unavailable'; return; }
+            const s = await r.json();
+            if(s.state === 'error'){
+              div.innerHTML = `<span class="status-disconnected">Error: ${s.error||'unknown'}</span>`;
+              clearInterval(artistSyncTimer);
+              document.getElementById('btn-sync-artists').disabled = false;
+              return;
+            }
+            const total = s.total ?? 0;
+            const processed = s.processed ?? 0;
+            const autoMatched = s.auto_matched ?? 0;
+            const pend = s.pending_count ?? 0;
+            if(s.state === 'done'){
+              div.innerHTML = `<span class="status-connected">Done.</span> Artists: ${total}, auto-matched: ${autoMatched}, pending: ${pend}. <a href="/pending">Review pending</a>`;
+              clearInterval(artistSyncTimer);
+              document.getElementById('btn-sync-artists').disabled = false;
+              return;
+            }
+            div.textContent = `Syncing… ${processed}/${total} (auto: ${autoMatched}, pending: ${pend})`;
+          }catch(e){
+            div.textContent = 'Error reading status: ' + e;
+          }
+        };
+        await render();
+        artistSyncTimer = setInterval(render, 2000);
+      }
+    </script>
   </div>
   
 </section>
