@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import List, Dict, Optional
+from tidalapi import artist as tidal_artist
 
 from fastapi import FastAPI, Request, HTTPException, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
@@ -112,18 +113,18 @@ async def fetch_spotify_followed_artists() -> List[Dict[str, str]]:
 def _tidal_favorite_artists_set(sess) -> set:
     user = sess.user
     favs = user.favorites.artists()
-    return {a.id for a in favs}
+    # Normalize to str for consistent comparisons
+    return {str(a.id) for a in favs}
 
 
 def _tidal_search_artists(sess, name: str) -> List[Dict[str, str]]:
-    res = sess.search("artists", name)
-    out: List[Dict[str, str]] = []
+    # Use new tidalapi search signature: search(query, models=[Artist]) -> dict
     try:
-        for a in res.artists:
-            out.append({"id": str(a.id), "name": a.name})
+        res = sess.search(name, [tidal_artist.Artist])
+        artists = res.get("artists") or []
+        return [{"id": str(a.id), "name": a.name} for a in artists]
     except Exception:
-        pass
-    return out
+        return []
 
 
 @app.post("/sync/artists")
