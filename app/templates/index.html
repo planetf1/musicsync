@@ -77,7 +77,9 @@
         btn.disabled = true;
         div.textContent = 'Starting sync…';
         try{
-          const resp = await fetch('/sync/artists/start', {method:'POST'});
+          const debugLimit = document.getElementById('chk-limit-25')?.checked ? 25 : 0;
+          const url = debugLimit ? ('/sync/artists/start?limit=' + debugLimit) : '/sync/artists/start';
+          const resp = await fetch(url, {method:'POST'});
           if(!resp.ok){
             div.textContent = 'Failed to start sync.';
             btn.disabled = false;
@@ -123,6 +125,9 @@
         artistSyncTimer = setInterval(render, 2000);
       }
     </script>
+  </div>
+  <div style="margin-top:6px">
+    <label><input type="checkbox" id="chk-limit-25" /> Debug: limit to first 25 artists</label>
   </div>
   
 </section>

@@ -152,8 +152,8 @@ def _tidal_search_artists(sess, name: str) -> List[Dict[str, str]]:
             out = to_list(res3)
             if out:
                 return out
-    except Exception:
-        pass
+    except Exception as e:
+        _log.info(f"TIDAL search exception for '{name}': {e}")
     return []
 
 
@@ -214,7 +214,7 @@ def _job_set(job_id: str, **kwargs) -> None:
         _jobs[job_id].update(kwargs)
 
 
-def _run_sync_artists_job(job_id: str) -> None:
+def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
     _log.info(f"[job {job_id}] Sync followed artists: start")
     _job_set(job_id, state="running", started_at=datetime.now(timezone.utc).isoformat())
     try:
@@ -246,6 +246,8 @@ def _run_sync_artists_job(job_id: str) -> None:
             if not after:
                 break
 
+        if limit and limit > 0:
+            artists = artists[:limit]
         total = len(artists)
         _job_set(job_id, total=total, processed=0, auto_matched=0, pending_count=0)
         _log.info(f"[job {job_id}] Loaded {total} followed artists from Spotify")
@@ -263,6 +265,8 @@ def _run_sync_artists_job(job_id: str) -> None:
                 candidates = _tidal_search_artists(sess, name)
                 if not candidates:
                     _log.debug(f"[job {job_id}] No TIDAL candidates for '{name}'")
+                else:
+                    _log.info(f"[job {job_id}] Candidates for '{name}': {len(candidates)}")
                 ranked = score_artist_match(name, candidates)
                 if ranked and ranked[0]["score"] >= 90.0:
                     top = ranked[0]
@@ -299,10 +303,16 @@ def _run_sync_artists_job(job_id: str) -> None:
 
 
 @app.post("/sync/artists/start")
-async def start_sync_artists():
+async def start_sync_artists(request: Request):
+    # optional debug limit via query param: /sync/artists/start?limit=25
+    limit_param = request.query_params.get("limit")
+    try:
+        limit = int(limit_param) if limit_param else 0
+    except ValueError:
+        limit = 0
     job_id = str(uuid.uuid4())
-    _job_set(job_id, state="pending")
-    threading.Thread(target=_run_sync_artists_job, args=(job_id,), daemon=True).start()
+    _job_set(job_id, state="pending", limit=limit)
+    threading.Thread(target=_run_sync_artists_job, args=(job_id, limit), daemon=True).start()
     return JSONResponse({"job_id": job_id})
 
 
