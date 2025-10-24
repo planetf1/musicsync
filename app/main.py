@@ -14,7 +14,16 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
-from .storage import init_db, SessionLocal, add_pending_resolution, delete_pending, get_pending, upsert_artist_map
+from .storage import (
+    init_db,
+    SessionLocal,
+    add_pending_resolution,
+    delete_pending,
+    get_pending,
+    upsert_artist_map,
+    delete_pending_by_spotify_id,
+    cleanup_pending_for_resolved,
+)
 from .spotify_client import get_authorize_url, exchange_code_for_token, get_spotify_client
 from .tidal_client import (
     get_session as get_tidal_session,
@@ -337,6 +346,12 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
 
         favorites = _tidal_favorite_artists_set(sess)
 
+        # Proactively clear any stale pending entries that are already resolved
+        with SessionLocal() as db:
+            removed = cleanup_pending_for_resolved(db)
+            if removed:
+                _log.info(f"[job {job_id}] Cleared {removed} stale pending entries for already-resolved artists")
+
         auto_matched = 0
         pending = 0
         processed = 0
@@ -368,6 +383,8 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
                         favorites.add(tid)
                     with SessionLocal() as db:
                         upsert_artist_map(db, sp_id, name, tid, str(top["name"]), float(top["score"]), True)
+                        # Remove any stale pending entries for this artist now that it's resolved
+                        delete_pending_by_spotify_id(db, sp_id)
                     _log.info(f"[job {job_id}] Auto-matched '{name}' -> '{top['name']}' (score {top['score']:.0f})")
                     auto_matched += 1
                 else:

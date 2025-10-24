@@ -148,6 +148,23 @@ def delete_pending(db: OrmSession, pending_id: int) -> None:
     db.commit()
 
 
+def delete_pending_by_spotify_id(db: OrmSession, spotify_id: str) -> None:
+    """Delete any pending resolution rows for the given Spotify artist id."""
+    db.query(PendingResolution).filter(PendingResolution.spotify_id == spotify_id).delete()
+    db.commit()
+
+
+def cleanup_pending_for_resolved(db: OrmSession) -> int:
+    """Remove pending rows whose artists are already resolved in ArtistMap.
+
+    Returns the number of rows deleted (best-effort estimate).
+    """
+    subq = db.query(ArtistMap.spotify_id).filter(ArtistMap.resolved == True)
+    deleted = db.query(PendingResolution).filter(PendingResolution.spotify_id.in_(subq)).delete(synchronize_session=False)
+    db.commit()
+    return int(deleted or 0)
+
+
 def log(db: OrmSession, phase: str, message: str) -> None:
     db.add(RunLog(phase=phase, message=message))
     db.commit()
