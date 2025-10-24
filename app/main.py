@@ -177,6 +177,7 @@ def _tidal_search_artists(sess: Any, name: str) -> List[Dict[str, str]]:
     try:
         # Primary: search for artists explicitly
         res = sess.search(name, [tidal_artist.Artist], limit=25)
+        _log.debug(f"TIDAL search artists raw type={type(res)} for '{name}'")
         out = extract_artists(res)
         if out:
             return out
@@ -186,6 +187,7 @@ def _tidal_search_artists(sess: Any, name: str) -> List[Dict[str, str]]:
     try:
         # Fallback 1: search across all models and filter artists
         res2 = sess.search(name, None, limit=25)
+        _log.debug(f"TIDAL search all-models raw type={type(res2)} for '{name}'")
         out = extract_artists(res2)
         if out:
             return out
@@ -200,6 +202,7 @@ def _tidal_search_artists(sess: Any, name: str) -> List[Dict[str, str]]:
         q = q.replace(" & ", " and ")
         if q != name:
             res3 = sess.search(q, [tidal_artist.Artist], limit=25)
+            _log.debug(f"TIDAL search normalized raw type={type(res3)} for '{name}' -> '{q}'")
             out = extract_artists(res3)
             if out:
                 return out
@@ -280,6 +283,13 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
             return
         try:
             sess = get_tidal_session()
+            # Log some session diagnostics
+            try:
+                uid = getattr(getattr(sess, "user", None), "id", None)
+                ccode = getattr(sess, "country_code", None)
+                _log.info(f"[job {job_id}] TIDAL session active. user={uid} country={ccode}")
+            except Exception:
+                pass
         except Exception as e:
             _job_set(job_id, state="error", error=str(e))
             _log.exception(f"[job {job_id}] TIDAL not authorized")
