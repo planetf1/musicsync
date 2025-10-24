@@ -6,6 +6,8 @@ import threading
 import uuid
 from datetime import datetime, timezone
 from tidalapi import artist as tidal_artist
+import re
+import unicodedata
 
 from fastapi import FastAPI, Request, HTTPException, Form
 from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
@@ -44,6 +46,24 @@ _log.setLevel(logging.DEBUG)
 root_logger = logging.getLogger()
 if root_logger.level > logging.INFO:
     root_logger.setLevel(logging.INFO)
+
+
+def _norm_artist_name(s: str) -> str:
+    """Normalize artist names for comparison: strip diacritics, casefold, replace symbols, collapse spaces."""
+    if not s:
+        return ""
+    # Unicode normalize and strip accents
+    s_norm = unicodedata.normalize("NFKD", s)
+    s_ascii = s_norm.encode("ascii", "ignore").decode("ascii")
+    s_ascii = s_ascii.replace("&", " and ")
+    # Remove punctuation except spaces and alnum
+    s_ascii = re.sub(r"[^A-Za-z0-9\s]", " ", s_ascii)
+    # Collapse whitespace and lower
+    s_ascii = re.sub(r"\s+", " ", s_ascii).strip().lower()
+    # Remove leading 'the '
+    if s_ascii.startswith("the "):
+        s_ascii = s_ascii[4:]
+    return s_ascii
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -331,8 +351,14 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
                 else:
                     _log.info(f"[job {job_id}] Candidates for '{name}': {len(candidates)}")
                 ranked = score_artist_match(name, candidates)
-                if ranked and ranked[0]["score"] >= 90.0:
-                    top = ranked[0]
+                # Prefer exact-normalized matches if any
+                norm_q = _norm_artist_name(name)
+                exact_candidate = next((c for c in candidates if _norm_artist_name(c["name"]) == norm_q), None)
+                if exact_candidate:
+                    top = {"id": exact_candidate["id"], "name": exact_candidate["name"], "score": 100.0}
+                else:
+                    top = ranked[0] if ranked else None
+                if top and float(top["score"]) >= 85.0:
                     tid = str(top["id"])
                     if tid not in favorites:
                         try:
@@ -342,6 +368,7 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
                         favorites.add(tid)
                     with SessionLocal() as db:
                         upsert_artist_map(db, sp_id, name, tid, str(top["name"]), float(top["score"]), True)
+                    _log.info(f"[job {job_id}] Auto-matched '{name}' -> '{top['name']}' (score {top['score']:.0f})")
                     auto_matched += 1
                 else:
                     with SessionLocal() as db:
