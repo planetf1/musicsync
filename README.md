@@ -66,3 +66,4 @@ The app uses TIDAL’s OAuth simple flow via the `tidalapi` package. When you cl
 - Playlist sync (create/update playlists on TIDAL)
 - Progress persistence and resumable sessions
 
+ 
