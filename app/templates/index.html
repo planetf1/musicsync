@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  <h2>Connections</h2>
+  <ul>
+    <li>
+      Spotify:
+      <strong class="{{ 'status-connected' if spotify_ok else 'status-disconnected' }}">{{ 'Connected' if spotify_ok else 'Not Connected' }}</strong>
+      {% if not spotify_ok %}
+        <a class="btn" href="/auth/spotify/login">Connect Spotify</a>
+      {% endif %}
+    </li>
+    <li>
+      TIDAL:
+      <strong class="{{ 'status-connected' if tidal_ok else 'status-disconnected' }}">{{ 'Connected' if tidal_ok else 'Not Connected' }}</strong>
+      {% if not tidal_ok %}
+        <button class="btn" onclick="startTidal()">Connect TIDAL</button>
+        <button class="btn" onclick="checkTidal()">Check Status</button>
+        <div id="tidal-link" style="margin-top:8px"></div>
+        <script>
+          let pollTimer;
+          function startPolling() {
+            if (pollTimer) clearInterval(pollTimer);
+            pollTimer = setInterval(checkTidal, 4000);
+          }
+          function ensureAbsolute(u){
+            if(!u) return null;
+            return (/^https?:\/\//i.test(u)) ? u : ('https://' + u.replace(/^\/+/, ''));
+          }
+          function buildTidalLink(data){
+            const complete = data.verification_uri_complete;
+            const base = data.verification_uri;
+            const code = data.user_code;
+            if (complete) return ensureAbsolute(complete);
+            if (base && code) return ensureAbsolute((base || '').replace(/\/+$/, '') + '/' + code);
+            if (base) return ensureAbsolute(base);
+            return 'https://link.tidal.com/';
+          }
+          async function startTidal() {
+            const resp = await fetch('/auth/tidal/start');
+            const data = await resp.json();
+            const div = document.getElementById('tidal-link');
+            const link = buildTidalLink(data);
+            const code = data.user_code ? `<div style="margin-top:6px">Code: <strong>${data.user_code}</strong></div>` : '';
+            const expires = data.expires_in ? `<div>Expires in ~${Math.floor(data.expires_in)} seconds</div>` : '';
+            div.innerHTML = `Visit <a href="${link}" target="_blank">${link}</a> to link your account.${code}${expires}`;
+            startPolling();
+          }
+          async function checkTidal() {
+            const resp = await fetch('/auth/tidal/status');
+            const data = await resp.json();
+            if (data.logged_in) { if (pollTimer) clearInterval(pollTimer); window.location.reload(); }
+          }
+        </script>
+      {% endif %}
+    </li>
+  </ul>
+  <div class="actions">
+    <form method="post" action="/sync/artists">
+      <button type="submit" class="btn" {% if not (spotify_ok and tidal_ok) %}disabled{% endif %}>Sync Followed Artists</button>
+    </form>
+  </div>
+  
+</section>
+{% endblock %}

@@ -1,0 +1,46 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
+.env.*
+!.env.example
+.python-version
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Editors/IDE
+.vscode/
+.idea/
+.history/
+
+# Tests & coverage
+.tox/
+.pytest_cache/
+.coverage
+coverage.xml
+
+# Logs & caches
+logs/
+*.log
+.cache/
+
+# Database / local state
+*.db
+*.sqlite
+*.sqlite3
+musicsync.db
+
+# Node/Frontend (if added later)
+node_modules/
