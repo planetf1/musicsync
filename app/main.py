@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 import logging
 import threading
 import uuid
@@ -32,6 +32,18 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 _jobs_lock = threading.Lock()
 _jobs: Dict[str, Dict[str, object]] = {}
 _log = logging.getLogger("musicsync")
+# Ensure our app logger emits to console even under uvicorn's logging config
+if not _log.handlers:
+    _handler = logging.StreamHandler()
+    _formatter = logging.Formatter("%(asctime)s %(levelname)s [%(name)s] %(message)s")
+    _handler.setFormatter(_formatter)
+    _log.addHandler(_handler)
+_log.setLevel(logging.DEBUG)
+
+# Also bump root logger to INFO if it's lower, so our messages aren't dropped
+root_logger = logging.getLogger()
+if root_logger.level > logging.INFO:
+    root_logger.setLevel(logging.INFO)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -126,34 +138,75 @@ def _tidal_favorite_artists_set(sess) -> set:
     return {str(a.id) for a in favs}
 
 
-def _tidal_search_artists(sess, name: str) -> List[Dict[str, str]]:
-    # Use tidalapi search API; attempt multiple strategies if needed
-    def to_list(res) -> List[Dict[str, str]]:
-        arts = (res or {}).get("artists") or []
-        return [{"id": str(a.id), "name": a.name} for a in arts]
+def _tidal_search_artists(sess: Any, name: str) -> List[Dict[str, str]]:
+    """Search for artists on TIDAL with multiple fallbacks and robust parsing.
+
+    Handles differing tidalapi return shapes (dict or list) and logs issues.
+    """
+
+    def extract_artists(res: Any) -> List[Dict[str, str]]:
+        try:
+            if not res:
+                return []
+            candidates: List[Any] = []
+            if isinstance(res, dict):
+                # Try common keys
+                for k in ("artists", "Artists", "artist", "Artist"):
+                    if k in res and isinstance(res[k], list):
+                        candidates = res[k]
+                        break
+                # Some tidalapi versions may return list directly, but keep dict fallback
+                if not candidates and isinstance(res.get("artists"), list):  # type: ignore[attr-defined]
+                    candidates = res.get("artists")  # type: ignore[assignment]
+            elif isinstance(res, list):
+                candidates = res
+            out: List[Dict[str, str]] = []
+            for a in candidates:
+                try:
+                    aid = getattr(a, "id", None) if not isinstance(a, dict) else a.get("id")
+                    aname = getattr(a, "name", None) if not isinstance(a, dict) else a.get("name")
+                    if aid and aname:
+                        out.append({"id": str(aid), "name": str(aname)})
+                except Exception:
+                    continue
+            return out
+        except Exception as e:  # pragma: no cover
+            _log.debug(f"extract_artists parse error for '{name}': {e}")
+            return []
 
     try:
         # Primary: search for artists explicitly
         res = sess.search(name, [tidal_artist.Artist], limit=25)
-        out = to_list(res)
+        out = extract_artists(res)
         if out:
             return out
+    except Exception as e:
+        _log.warning(f"TIDAL search (artists) failed for '{name}': {e}")
+
+    try:
         # Fallback 1: search across all models and filter artists
         res2 = sess.search(name, None, limit=25)
-        out = to_list(res2)
+        out = extract_artists(res2)
         if out:
             return out
-        # Fallback 2: normalize name slightly (strip The, extra whitespace)
+    except Exception as e:
+        _log.warning(f"TIDAL search (all models) failed for '{name}': {e}")
+
+    try:
+        # Fallback 2: normalize name slightly (strip The, replace ampersand)
         q = name.strip()
         if q.lower().startswith("the "):
             q = q[4:]
+        q = q.replace(" & ", " and ")
         if q != name:
             res3 = sess.search(q, [tidal_artist.Artist], limit=25)
-            out = to_list(res3)
+            out = extract_artists(res3)
             if out:
                 return out
     except Exception as e:
-        _log.info(f"TIDAL search exception for '{name}': {e}")
+        _log.warning(f"TIDAL search (normalized) failed for '{name}': {e}")
+
+    _log.debug(f"TIDAL search returned 0 candidates for '{name}'")
     return []
 
 
