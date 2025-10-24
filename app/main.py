@@ -62,6 +62,8 @@ def _norm_artist_name(s: str) -> str:
     if not s:
         return ""
     # Unicode normalize and strip accents
+    # Remove parenthetical/bracketed suffixes like "(OMD)", "[Official]"
+    s = re.sub(r"\s*[\(\[\{][^\)\]\}]*[\)\]\}]", " ", s)
     s_norm = unicodedata.normalize("NFKD", s)
     s_ascii = s_norm.encode("ascii", "ignore").decode("ascii")
     s_ascii = s_ascii.replace("&", " and ")
@@ -369,10 +371,30 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
                 # Prefer exact-normalized matches if any
                 norm_q = _norm_artist_name(name)
                 exact_candidate = next((c for c in candidates if _norm_artist_name(c["name"]) == norm_q), None)
+                # Also compute normalized fuzzy scores and take the better of raw vs normalized
+                top_raw = ranked[0] if ranked else None
+                top_norm = None
+                try:
+                    norm_candidates = [{"id": c["id"], "name": _norm_artist_name(c["name"]) } for c in candidates]
+                    norm_ranked = score_artist_match(norm_q, norm_candidates)
+                    if norm_ranked:
+                        # map back to original name
+                        best_id = norm_ranked[0]["id"]
+                        best_score = float(norm_ranked[0]["score"])
+                        orig_name = next((c["name"] for c in candidates if c["id"] == best_id), None)
+                        if orig_name:
+                            top_norm = {"id": best_id, "name": orig_name, "score": best_score}
+                except Exception:
+                    pass
+
                 if exact_candidate:
                     top = {"id": exact_candidate["id"], "name": exact_candidate["name"], "score": 100.0}
                 else:
-                    top = ranked[0] if ranked else None
+                    # Choose max of raw vs normalized
+                    if top_raw and top_norm:
+                        top = top_raw if float(top_raw["score"]) >= float(top_norm["score"]) else top_norm
+                    else:
+                        top = top_raw or top_norm
                 if top and float(top["score"]) >= 85.0:
                     tid = str(top["id"])
                     if tid not in favorites:
