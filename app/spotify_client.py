@@ -56,4 +56,4 @@ def get_spotify_client() -> spotipy.Spotify:
     if not token_info:
         raise RuntimeError("Spotify not authorized. Visit /auth/spotify/login")
     token_info = _refresh_if_needed(token_info)
-    return spotipy.Spotify(auth=token_info["access_token"])  # type: ignore
+    return spotipy.Spotify(auth=token_info["access_token"])

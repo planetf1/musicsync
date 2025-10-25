@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timezone
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, cast
 
 import tidalapi
 
@@ -21,7 +21,7 @@ def _create_session() -> Any:
             # If already cached, try to reuse it. If not logged in and no login is in progress,
             # attempt to load credentials into the same object to maintain references.
             try:
-                if _cached_session.check_login():  # type: ignore[attr-defined]
+                if _cached_session.check_login():
                     return _cached_session
             except Exception:
                 pass
@@ -38,25 +38,25 @@ def _create_session() -> Any:
                             refresh_token = tok.get("refresh_token")
                             expiry_val = tok.get("expiry_time")
                             expiry_ts = int(expiry_val) if expiry_val is not None else 0
-                            expiry_time = datetime.fromtimestamp(expiry_ts, tz=timezone.utc)
+                            expiry_time = datetime.fromtimestamp(expiry_ts, tz=UTC)
                             _cached_session.load_oauth_session(
                                 token_type,
                                 access_token,
                                 refresh_token,
                                 expiry_time,
-                            )  # type: ignore[attr-defined]
-                            if _cached_session.check_login():  # type: ignore[attr-defined]
+                            )
+                            if _cached_session.check_login():
                                 return _cached_session
                         elif all(k in tok for k in ("session_id", "country_code", "user_id")):
                             # Legacy session method (fallback)
-                            _cached_session.load_session(tok["session_id"], tok["country_code"], tok["user_id"])  # type: ignore[arg-type]
-                            if _cached_session.check_login():  # type: ignore[attr-defined]
+                            _cached_session.load_session(tok["session_id"], tok["country_code"], tok["user_id"])
+                            if _cached_session.check_login():
                                 return _cached_session
                     except Exception:
                         pass
             return _cached_session
 
-        sess: Any = tidalapi.Session()  # type: ignore[attr-defined]
+        sess: Any = cast(Any, tidalapi).Session()
         # Try to load an existing session from DB
         with SessionLocal() as db:
             tok = load_token(db, "tidal")
@@ -68,19 +68,19 @@ def _create_session() -> Any:
                     refresh_token = tok.get("refresh_token")
                     expiry_val = tok.get("expiry_time")
                     expiry_ts = int(expiry_val) if expiry_val is not None else 0
-                    expiry_time = datetime.fromtimestamp(expiry_ts, tz=timezone.utc)
+                    expiry_time = datetime.fromtimestamp(expiry_ts, tz=UTC)
                     sess.load_oauth_session(
                         token_type,
                         access_token,
                         refresh_token,
                         expiry_time,
-                    )  # type: ignore[attr-defined]
-                    if sess.check_login():  # type: ignore[attr-defined]
+                    )
+                    if sess.check_login():
                         _cached_session = sess
                         return sess
                 elif all(k in tok for k in ("session_id", "country_code", "user_id")):
-                    sess.load_session(tok["session_id"], tok["country_code"], tok["user_id"])  # type: ignore[arg-type]
-                    if sess.check_login():  # type: ignore[attr-defined]
+                    sess.load_session(tok["session_id"], tok["country_code"], tok["user_id"])
+                    if sess.check_login():
                         _cached_session = sess
                         return sess
             except Exception:
@@ -94,7 +94,7 @@ def is_logged_in() -> bool:
         return True
     sess: Any = _create_session()
     try:
-        return bool(sess.check_login())  # type: ignore[attr-defined]
+        return bool(sess.check_login())
     except Exception:
         return False
 
@@ -115,7 +115,7 @@ def get_login_url_and_worker() -> dict[str, object]:
             "pending": True,
         }
 
-    login, future = sess.login_oauth()  # type: ignore[attr-defined]
+    login, future = sess.login_oauth()
     _login_state = {"pending": True, "connected": False, "error": None}
     _login_in_progress = True
 
@@ -129,7 +129,7 @@ def get_login_url_and_worker() -> dict[str, object]:
         ok = False
         try:
             future.result()  # blocks until login completes or expires
-            ok = sess.check_login()  # type: ignore[attr-defined]
+            ok = sess.check_login()
         except Exception:
             ok = False
         if ok:
@@ -148,9 +148,9 @@ def get_login_url_and_worker() -> dict[str, object]:
                     db,
                     "tidal",
                     {
-                        "token_type": getattr(sess, "token_type", None),  # type: ignore[attr-defined]
-                        "access_token": getattr(sess, "access_token", None),  # type: ignore[attr-defined]
-                        "refresh_token": getattr(sess, "refresh_token", None),  # type: ignore[attr-defined]
+                        "token_type": getattr(sess, "token_type", None),
+                        "access_token": getattr(sess, "access_token", None),
+                        "refresh_token": getattr(sess, "refresh_token", None),
                         "expiry_time": expiry_ts,
                     },
                 )
@@ -176,7 +176,7 @@ def get_login_url_and_worker() -> dict[str, object]:
 
 def get_session() -> Any:
     sess: Any = _create_session()
-    if not sess.check_login():  # type: ignore[attr-defined]
+    if not sess.check_login():
         raise RuntimeError("TIDAL not authorized. Visit /auth/tidal/start and follow instructions.")
     return sess
 

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
 from sqlalchemy import (
     Boolean,
-    Column,
     DateTime,
     Float,
     Integer,
@@ -15,50 +15,53 @@ from sqlalchemy import (
     Text,
     create_engine,
 )
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 from sqlalchemy.orm import Session as OrmSession
-from sqlalchemy.orm import declarative_base, sessionmaker
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "musicsync.db")
 engine = create_engine(f"sqlite:///{DB_PATH}", future=True)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
-Base = declarative_base()
+
+
+class Base(DeclarativeBase):
+    pass
 
 
 class Token(Base):
     __tablename__ = "tokens"
-    service = Column(String(20), primary_key=True)  # 'spotify' | 'tidal'
-    data = Column(Text, nullable=False)  # JSON blob
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    service: Mapped[str] = mapped_column(String(20), primary_key=True)  # 'spotify' | 'tidal'
+    data: Mapped[str] = mapped_column(Text, nullable=False)  # JSON blob
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class ArtistMap(Base):
     __tablename__ = "artist_map"
-    spotify_id = Column(String(64), primary_key=True)
-    spotify_name = Column(String(255), nullable=False)
-    tidal_id = Column(String(64), nullable=True)
-    tidal_name = Column(String(255), nullable=True)
-    confidence = Column(Float, default=0.0)
-    resolved = Column(Boolean, default=False)
-    last_synced_at = Column(DateTime, nullable=True)
+    spotify_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    spotify_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    tidal_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tidal_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     # JSON-encoded list of Spotify genres for the artist (simple list[str])
-    genres_json = Column(Text, nullable=True)
+    genres_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class PendingResolution(Base):
     __tablename__ = "pending_resolution"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    spotify_id = Column(String(64), nullable=False)
-    spotify_name = Column(String(255), nullable=False)
-    candidates_json = Column(Text, nullable=False)  # JSON list of {id,name,score}
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    spotify_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    spotify_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    candidates_json: Mapped[str] = mapped_column(Text, nullable=False)  # JSON list of {id,name,score}
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class RunLog(Base):
     __tablename__ = "run_log"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    phase = Column(String(64), nullable=False)
-    message = Column(Text, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    phase: Mapped[str] = mapped_column(String(64), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 # --- Tracks ---
@@ -66,31 +69,33 @@ class RunLog(Base):
 
 class TrackMap(Base):
     __tablename__ = "track_map"
-    spotify_id = Column(String(64), primary_key=True)
-    spotify_title = Column(String(512), nullable=False)
-    spotify_artist = Column(String(512), nullable=False)
-    spotify_artist_id = Column(String(64), nullable=True)
-    tidal_id = Column(String(64), nullable=True)
-    tidal_title = Column(String(512), nullable=True)
-    tidal_artist = Column(String(512), nullable=True)
-    tidal_artist_id = Column(String(64), nullable=True)
-    isrc = Column(String(32), nullable=True)
-    spotify_duration = Column(Integer, nullable=True)  # seconds
-    tidal_duration = Column(Integer, nullable=True)  # seconds
-    confidence = Column(Float, default=0.0)
-    resolved = Column(Boolean, default=False)
-    last_synced_at = Column(DateTime, nullable=True)
+    spotify_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    spotify_title: Mapped[str] = mapped_column(String(512), nullable=False)
+    spotify_artist: Mapped[str] = mapped_column(String(512), nullable=False)
+    spotify_artist_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tidal_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tidal_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    tidal_artist: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    tidal_artist_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    isrc: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    spotify_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)  # seconds
+    tidal_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)  # seconds
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class PendingTrackResolution(Base):
     __tablename__ = "pending_track_resolution"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    spotify_id = Column(String(64), nullable=False)
-    spotify_title = Column(String(512), nullable=False)
-    spotify_artist = Column(String(512), nullable=False)
-    isrc = Column(String(32), nullable=True)
-    candidates_json = Column(Text, nullable=False)  # JSON list of {id,title,artist,isrc,duration,score}
-    created_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    spotify_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    spotify_title: Mapped[str] = mapped_column(String(512), nullable=False)
+    spotify_artist: Mapped[str] = mapped_column(String(512), nullable=False)
+    isrc: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    candidates_json: Mapped[str] = mapped_column(
+        Text, nullable=False
+    )  # JSON list of {id,title,artist,isrc,duration,score}
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 # --- Sync Events (audit/backup) ---
@@ -98,27 +103,27 @@ class PendingTrackResolution(Base):
 
 class ArtistSyncEvent(Base):
     __tablename__ = "artist_sync_event"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    spotify_id = Column(String(64), nullable=False)
-    spotify_name = Column(String(255), nullable=False)
-    tidal_id = Column(String(64), nullable=False)
-    tidal_name = Column(String(255), nullable=False)
-    source = Column(String(16), nullable=False)  # 'auto' | 'manual'
-    synced_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    spotify_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    spotify_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    tidal_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    tidal_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)  # 'auto' | 'manual'
+    synced_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class TrackSyncEvent(Base):
     __tablename__ = "track_sync_event"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    spotify_id = Column(String(64), nullable=False)
-    spotify_title = Column(String(512), nullable=False)
-    spotify_artist = Column(String(512), nullable=False)
-    tidal_id = Column(String(64), nullable=False)
-    tidal_title = Column(String(512), nullable=False)
-    tidal_artist = Column(String(512), nullable=False)
-    isrc = Column(String(32), nullable=True)
-    source = Column(String(16), nullable=False)  # 'auto' | 'manual'
-    synced_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    spotify_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    spotify_title: Mapped[str] = mapped_column(String(512), nullable=False)
+    spotify_artist: Mapped[str] = mapped_column(String(512), nullable=False)
+    tidal_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    tidal_title: Mapped[str] = mapped_column(String(512), nullable=False)
+    tidal_artist: Mapped[str] = mapped_column(String(512), nullable=False)
+    isrc: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)  # 'auto' | 'manual'
+    synced_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 # --- Playlists ---
@@ -126,27 +131,27 @@ class TrackSyncEvent(Base):
 
 class PlaylistMap(Base):
     __tablename__ = "playlist_map"
-    spotify_id = Column(String(64), primary_key=True)
-    spotify_name = Column(String(512), nullable=False)
-    tidal_id = Column(String(64), nullable=True)
-    tidal_name = Column(String(512), nullable=True)
-    last_synced_at = Column(DateTime, nullable=True)
+    spotify_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    spotify_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    tidal_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tidal_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class PlaylistTrack(Base):
     __tablename__ = "playlist_track"
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    playlist_spotify_id = Column(String(64), nullable=False, index=True)
-    position = Column(Integer, nullable=False)  # 1-based order from Spotify
-    spotify_track_id = Column(String(64), nullable=False)
-    spotify_title = Column(String(512), nullable=False)
-    spotify_artist = Column(String(512), nullable=False)
-    tidal_track_id = Column(String(64), nullable=True)
-    tidal_title = Column(String(512), nullable=True)
-    tidal_artist = Column(String(512), nullable=True)
-    isrc = Column(String(32), nullable=True)
-    spotify_duration = Column(Integer, nullable=True)  # seconds
-    last_synced_at = Column(DateTime, default=datetime.utcnow)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    playlist_spotify_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)  # 1-based order from Spotify
+    spotify_track_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    spotify_title: Mapped[str] = mapped_column(String(512), nullable=False)
+    spotify_artist: Mapped[str] = mapped_column(String(512), nullable=False)
+    tidal_track_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tidal_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    tidal_artist: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    isrc: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    spotify_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)  # seconds
+    last_synced_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 def init_db() -> None:
@@ -155,7 +160,7 @@ def init_db() -> None:
     try:
         with engine.connect() as conn:
             res = conn.exec_driver_sql("PRAGMA table_info('track_map')")
-            cols = {row[1] for row in res.fetchall()}  # type: ignore[index]
+            cols = {row[1] for row in res.fetchall()}
             if 'spotify_artist_id' not in cols:
                 conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN spotify_artist_id VARCHAR(64)")
             if 'tidal_artist_id' not in cols:
@@ -166,7 +171,7 @@ def init_db() -> None:
                 conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN tidal_duration INTEGER")
             # Ensure artist_map has genres_json column
             res_art = conn.exec_driver_sql("PRAGMA table_info('artist_map')")
-            art_cols = {row[1] for row in res_art.fetchall()}  # type: ignore[index]
+            art_cols = {row[1] for row in res_art.fetchall()}
             if 'genres_json' not in art_cols:
                 try:
                     conn.exec_driver_sql("ALTER TABLE artist_map ADD COLUMN genres_json TEXT")
@@ -176,11 +181,16 @@ def init_db() -> None:
             res2 = conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table' AND name='playlist_map'")
             if not res2.fetchall():
                 conn.exec_driver_sql(
-                    "CREATE TABLE playlist_map (spotify_id VARCHAR(64) PRIMARY KEY, spotify_name VARCHAR(512) NOT NULL, tidal_id VARCHAR(64), tidal_name VARCHAR(512), last_synced_at DATETIME)"
+                    "CREATE TABLE playlist_map ("
+                    "spotify_id VARCHAR(64) PRIMARY KEY, "
+                    "spotify_name VARCHAR(512) NOT NULL, "
+                    "tidal_id VARCHAR(64), "
+                    "tidal_name VARCHAR(512), "
+                    "last_synced_at DATETIME)"
                 )
             # Ensure playlist_track table has spotify_duration
             res3 = conn.exec_driver_sql("PRAGMA table_info('playlist_track')")
-            pcols = {row[1] for row in res3.fetchall()}  # type: ignore[index]
+            pcols = {row[1] for row in res3.fetchall()}
             if 'spotify_duration' not in pcols:
                 try:
                     conn.exec_driver_sql("ALTER TABLE playlist_track ADD COLUMN spotify_duration INTEGER")
@@ -206,8 +216,8 @@ def save_token(db: OrmSession, service: str, data: dict[str, Any]) -> None:
     payload = json.dumps(data)
     existing = db.get(Token, service)
     if existing:
-        existing.data = payload  # type: ignore[assignment]
-        existing.updated_at = datetime.utcnow()  # type: ignore[assignment]
+        existing.data = payload
+        existing.updated_at = datetime.utcnow()
     else:
         db.add(Token(service=service, data=payload))
     db.commit()
@@ -236,11 +246,11 @@ def upsert_artist_map(
     if not m:
         m = ArtistMap(spotify_id=spotify_id, spotify_name=spotify_name)
         db.add(m)
-    m.tidal_id = tidal_id  # type: ignore[assignment]
-    m.tidal_name = tidal_name  # type: ignore[assignment]
-    m.confidence = confidence  # type: ignore[assignment]
-    m.resolved = resolved  # type: ignore[assignment]
-    m.last_synced_at = datetime.utcnow() if tidal_id else None  # type: ignore[assignment]
+    m.tidal_id = tidal_id
+    m.tidal_name = tidal_name
+    m.confidence = confidence
+    m.resolved = resolved
+    m.last_synced_at = datetime.utcnow() if tidal_id else None
     db.commit()
 
 
@@ -257,12 +267,12 @@ def update_artist_genres(db: OrmSession, spotify_id: str, genres: list[str] | No
         payload = json.dumps(list(genres or []))
     except Exception:
         payload = json.dumps([])
-    m.genres_json = payload  # type: ignore[assignment]
+    m.genres_json = payload
     db.commit()
 
 
 def add_pending_resolution(
-    db: OrmSession, spotify_id: str, spotify_name: str, candidates: list[dict[str, Any]]
+    db: OrmSession, spotify_id: str, spotify_name: str, candidates: Sequence[dict[str, Any]]
 ) -> None:
     # Remove any existing pending for this spotify_id to keep latest
     db.query(PendingResolution).filter(PendingResolution.spotify_id == spotify_id).delete()
@@ -302,7 +312,7 @@ def cleanup_pending_for_resolved(db: OrmSession) -> int:
 
     Returns the number of rows deleted (best-effort estimate).
     """
-    subq = db.query(ArtistMap.spotify_id).filter(ArtistMap.resolved == True)
+    subq = db.query(ArtistMap.spotify_id).filter(ArtistMap.resolved)
     deleted = (
         db.query(PendingResolution).filter(PendingResolution.spotify_id.in_(subq)).delete(synchronize_session=False)
     )
@@ -338,22 +348,22 @@ def upsert_track_map(
     if not m:
         m = TrackMap(spotify_id=spotify_id, spotify_title=spotify_title, spotify_artist=spotify_artist)
         db.add(m)
-    m.tidal_id = tidal_id  # type: ignore[assignment]
-    m.tidal_title = tidal_title  # type: ignore[assignment]
-    m.tidal_artist = tidal_artist  # type: ignore[assignment]
-    m.spotify_artist_id = spotify_artist_id  # type: ignore[assignment]
-    m.tidal_artist_id = tidal_artist_id  # type: ignore[assignment]
-    m.isrc = isrc  # type: ignore[assignment]
-    m.spotify_duration = spotify_duration  # type: ignore[assignment]
-    m.tidal_duration = tidal_duration  # type: ignore[assignment]
-    m.confidence = confidence  # type: ignore[assignment]
-    m.resolved = resolved  # type: ignore[assignment]
-    m.last_synced_at = datetime.utcnow() if tidal_id else None  # type: ignore[assignment]
+    m.tidal_id = tidal_id
+    m.tidal_title = tidal_title
+    m.tidal_artist = tidal_artist
+    m.spotify_artist_id = spotify_artist_id
+    m.tidal_artist_id = tidal_artist_id
+    m.isrc = isrc
+    m.spotify_duration = spotify_duration
+    m.tidal_duration = tidal_duration
+    m.confidence = confidence
+    m.resolved = resolved
+    m.last_synced_at = datetime.utcnow() if tidal_id else None
     db.commit()
 
 
 def add_pending_track_resolution(
-    db: OrmSession, spotify_id: str, title: str, artist: str, isrc: str | None, candidates: list[dict[str, Any]]
+    db: OrmSession, spotify_id: str, title: str, artist: str, isrc: str | None, candidates: Sequence[dict[str, Any]]
 ) -> None:
     db.query(PendingTrackResolution).filter(PendingTrackResolution.spotify_id == spotify_id).delete()
     db.add(
@@ -397,7 +407,7 @@ def delete_pending_track_by_spotify_id(db: OrmSession, spotify_id: str) -> None:
 
 
 def cleanup_pending_tracks_for_resolved(db: OrmSession) -> int:
-    subq = db.query(TrackMap.spotify_id).filter(TrackMap.resolved == True)
+    subq = db.query(TrackMap.spotify_id).filter(TrackMap.resolved)
     deleted = (
         db.query(PendingTrackResolution)
         .filter(PendingTrackResolution.spotify_id.in_(subq))
@@ -470,9 +480,9 @@ def upsert_playlist_map(
     if not m:
         m = PlaylistMap(spotify_id=spotify_id, spotify_name=spotify_name)
         db.add(m)
-    m.tidal_id = tidal_id  # type: ignore[assignment]
-    m.tidal_name = tidal_name  # type: ignore[assignment]
-    m.last_synced_at = datetime.utcnow() if tidal_id else None  # type: ignore[assignment]
+    m.tidal_id = tidal_id
+    m.tidal_name = tidal_name
+    m.last_synced_at = datetime.utcnow() if tidal_id else None
     db.commit()
 
 
@@ -485,7 +495,7 @@ def get_playlist_map(db: OrmSession, spotify_id: str) -> dict[str, Any] | None:
         "spotify_name": m.spotify_name,
         "tidal_id": m.tidal_id,
         "tidal_name": m.tidal_name,
-        "last_synced_at": m.last_synced_at.isoformat() if getattr(m, "last_synced_at", None) else None,
+        "last_synced_at": m.last_synced_at.isoformat() if m.last_synced_at else None,
     }
 
 
@@ -500,6 +510,8 @@ def replace_playlist_tracks(db: OrmSession, playlist_spotify_id: str, entries: l
     db.execute(delete(PlaylistTrack).where(PlaylistTrack.playlist_spotify_id == playlist_spotify_id))
     now = datetime.utcnow()
     for e in entries:
+        dur_raw = e.get("spotify_duration")
+        sd: int | None = int(dur_raw) if dur_raw is not None else None
         db.add(
             PlaylistTrack(
                 playlist_spotify_id=playlist_spotify_id,
@@ -511,7 +523,7 @@ def replace_playlist_tracks(db: OrmSession, playlist_spotify_id: str, entries: l
                 tidal_title=(str(e.get("tidal_title")) if e.get("tidal_title") else None),
                 tidal_artist=(str(e.get("tidal_artist")) if e.get("tidal_artist") else None),
                 isrc=(str(e.get("isrc")) if e.get("isrc") else None),
-                spotify_duration=(int(e.get("spotify_duration")) if e.get("spotify_duration") is not None else None),  # type: ignore[arg-type]
+                spotify_duration=sd,
                 last_synced_at=now,
             )
         )
@@ -577,12 +589,12 @@ def list_playlist_tracks(
                 "spotify_track_id": r.spotify_track_id,
                 "spotify_title": r.spotify_title,
                 "spotify_artist": r.spotify_artist,
-                "tidal_track_id": r.tidal_track_id,  # type: ignore[attr-defined]
-                "tidal_title": r.tidal_title,  # type: ignore[attr-defined]
-                "tidal_artist": r.tidal_artist,  # type: ignore[attr-defined]
-                "isrc": r.isrc,  # type: ignore[attr-defined]
+                "tidal_track_id": r.tidal_track_id,
+                "tidal_title": r.tidal_title,
+                "tidal_artist": r.tidal_artist,
+                "isrc": r.isrc,
                 "duration": int(getattr(r, "spotify_duration", 0) or 0),
-                "last_synced_at": r.last_synced_at.isoformat() if getattr(r, "last_synced_at", None) else None,  # type: ignore[union-attr]
+                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,
             }
         )
     return out, total
@@ -615,12 +627,12 @@ def export_artists(db: OrmSession) -> list[dict[str, Any]]:
             {
                 "spotify_id": r.spotify_id,
                 "spotify_name": r.spotify_name,
-                "tidal_id": r.tidal_id,  # type: ignore[attr-defined]
-                "tidal_name": r.tidal_name,  # type: ignore[attr-defined]
+                "tidal_id": r.tidal_id,
+                "tidal_name": r.tidal_name,
                 "genres": genres,
-                "confidence": float(r.confidence),  # type: ignore[arg-type]
-                "resolved": bool(r.resolved),  # type: ignore[arg-type]
-                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
+                "confidence": float(r.confidence),
+                "resolved": bool(r.resolved),
+                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,
             }
         )
     return out
@@ -635,17 +647,17 @@ def export_tracks(db: OrmSession) -> list[dict[str, Any]]:
                 "spotify_id": r.spotify_id,
                 "spotify_title": r.spotify_title,
                 "spotify_artist": r.spotify_artist,
-                "spotify_artist_id": r.spotify_artist_id,  # type: ignore[attr-defined]
-                "tidal_id": r.tidal_id,  # type: ignore[attr-defined]
-                "tidal_title": r.tidal_title,  # type: ignore[attr-defined]
-                "tidal_artist": r.tidal_artist,  # type: ignore[attr-defined]
-                "tidal_artist_id": r.tidal_artist_id,  # type: ignore[attr-defined]
-                "isrc": r.isrc,  # type: ignore[attr-defined]
-                "spotify_duration": r.spotify_duration,  # type: ignore[attr-defined]
-                "tidal_duration": r.tidal_duration,  # type: ignore[attr-defined]
-                "confidence": float(r.confidence),  # type: ignore[arg-type]
-                "resolved": bool(r.resolved),  # type: ignore[arg-type]
-                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
+                "spotify_artist_id": r.spotify_artist_id,
+                "tidal_id": r.tidal_id,
+                "tidal_title": r.tidal_title,
+                "tidal_artist": r.tidal_artist,
+                "tidal_artist_id": r.tidal_artist_id,
+                "isrc": r.isrc,
+                "spotify_duration": r.spotify_duration,
+                "tidal_duration": r.tidal_duration,
+                "confidence": float(r.confidence),
+                "resolved": bool(r.resolved),
+                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,
             }
         )
     return out
@@ -659,9 +671,9 @@ def export_playlists(db: OrmSession) -> list[dict[str, Any]]:
             {
                 "spotify_id": r.spotify_id,
                 "spotify_name": r.spotify_name,
-                "tidal_id": r.tidal_id,  # type: ignore[attr-defined]
-                "tidal_name": r.tidal_name,  # type: ignore[attr-defined]
-                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
+                "tidal_id": r.tidal_id,
+                "tidal_name": r.tidal_name,
+                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,
             }
         )
     return out
@@ -743,12 +755,12 @@ def list_synced_artists(
             {
                 "spotify_id": r.spotify_id,
                 "spotify_name": r.spotify_name,
-                "tidal_id": r.tidal_id,  # type: ignore[attr-defined]
-                "tidal_name": r.tidal_name,  # type: ignore[attr-defined]
+                "tidal_id": r.tidal_id,
+                "tidal_name": r.tidal_name,
                 "genres": genres,
-                "confidence": float(r.confidence),  # type: ignore[arg-type]
-                "resolved": bool(r.resolved),  # type: ignore[arg-type]
-                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
+                "confidence": float(r.confidence),
+                "resolved": bool(r.resolved),
+                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,
             }
         )
     # If in-memory sort by genre requested, apply now and paginate
@@ -876,17 +888,17 @@ def list_synced_tracks(
                 "spotify_id": r.spotify_id,
                 "spotify_title": r.spotify_title,
                 "spotify_artist": r.spotify_artist,
-                "spotify_artist_id": r.spotify_artist_id,  # type: ignore[attr-defined]
-                "tidal_id": r.tidal_id,  # type: ignore[attr-defined]
-                "tidal_title": r.tidal_title,  # type: ignore[attr-defined]
-                "tidal_artist": r.tidal_artist,  # type: ignore[attr-defined]
-                "tidal_artist_id": r.tidal_artist_id,  # type: ignore[attr-defined]
-                "isrc": r.isrc,  # type: ignore[attr-defined]
-                "spotify_duration": r.spotify_duration,  # type: ignore[attr-defined]
-                "tidal_duration": r.tidal_duration,  # type: ignore[attr-defined]
-                "confidence": float(r.confidence),  # type: ignore[arg-type]
-                "resolved": bool(r.resolved),  # type: ignore[arg-type]
-                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
+                "spotify_artist_id": r.spotify_artist_id,
+                "tidal_id": r.tidal_id,
+                "tidal_title": r.tidal_title,
+                "tidal_artist": r.tidal_artist,
+                "tidal_artist_id": r.tidal_artist_id,
+                "isrc": r.isrc,
+                "spotify_duration": r.spotify_duration,
+                "tidal_duration": r.tidal_duration,
+                "confidence": float(r.confidence),
+                "resolved": bool(r.resolved),
+                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,
             }
         )
     return out, total
@@ -945,9 +957,9 @@ def list_synced_playlists(
             {
                 "spotify_id": r.spotify_id,
                 "spotify_name": r.spotify_name,
-                "tidal_id": r.tidal_id,  # type: ignore[attr-defined]
-                "tidal_name": r.tidal_name,  # type: ignore[attr-defined]
-                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
+                "tidal_id": r.tidal_id,
+                "tidal_name": r.tidal_name,
+                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,
             }
         )
     return out, total

@@ -7,7 +7,7 @@ import re
 import threading
 import unicodedata
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from tidalapi import artist as tidal_artist
 
-from .matching import score_artist_match
+from .matching import ArtistCandidate, score_artist_match
 from .spotify_client import exchange_code_for_token, get_authorize_url, get_spotify_client
 from .storage import (
     DB_PATH,
@@ -240,8 +240,10 @@ def _tidal_search_artists(sess: Any, name: str) -> list[dict[str, str]]:
                         candidates = res[k]
                         break
                 # Some tidalapi versions may return list directly, but keep dict fallback
-                if not candidates and isinstance(res.get("artists"), list):  # type: ignore[attr-defined]
-                    candidates = res.get("artists")  # type: ignore[assignment]
+                if not candidates:
+                    artists_list = res.get("artists")
+                    if isinstance(artists_list, list):
+                        candidates = artists_list
             elif isinstance(res, list):
                 candidates = res
             out: list[dict[str, str]] = []
@@ -427,7 +429,7 @@ async def sync_artists():
         else:
             # Record pending resolution for UI
             with SessionLocal() as db:
-                add_pending_resolution(db, sp_id, name, ranked[:10])
+                add_pending_resolution(db, sp_id, name, [dict(x) for x in ranked[:10]])
                 upsert_artist_map(db, sp_id, name, None, None, float(ranked[0]["score"]) if ranked else 0.0, False)
             pending += 1
 
@@ -445,7 +447,7 @@ def _job_set(job_id: str, **kwargs) -> None:
 
 def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
     _log.info(f"[job {job_id}] Sync followed artists: start")
-    _job_set(job_id, state="running", started_at=datetime.now(timezone.utc).isoformat())
+    _job_set(job_id, state="running", started_at=datetime.now(UTC).isoformat())
     try:
         # Check auth
         try:
@@ -530,16 +532,16 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
                     _log.debug(f"[job {job_id}] No TIDAL candidates for '{name}'")
                 else:
                     _log.info(f"[job {job_id}] Candidates for '{name}': {len(candidates)}")
-                ranked = score_artist_match(name, candidates)
+                ranked: list[ArtistCandidate] = score_artist_match(name, candidates)
                 # Prefer exact-normalized matches if any
                 norm_q = _norm_artist_name(name)
                 exact_candidate = next((c for c in candidates if _norm_artist_name(c["name"]) == norm_q), None)
                 # Also compute normalized fuzzy scores and take the better of raw vs normalized
-                top_raw = ranked[0] if ranked else None
-                top_norm = None
+                top_raw: ArtistCandidate | None = ranked[0] if ranked else None
+                top_norm: ArtistCandidate | None = None
                 try:
                     norm_candidates = [{"id": c["id"], "name": _norm_artist_name(c["name"])} for c in candidates]
-                    norm_ranked = score_artist_match(norm_q, norm_candidates)
+                    norm_ranked: list[ArtistCandidate] = score_artist_match(norm_q, norm_candidates)
                     if norm_ranked:
                         # map back to original name
                         best_id = norm_ranked[0]["id"]
@@ -550,6 +552,7 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
                 except Exception:
                     pass
 
+                top: ArtistCandidate | None
                 if exact_candidate:
                     top = {"id": exact_candidate["id"], "name": exact_candidate["name"], "score": 100.0}
                 else:
@@ -578,7 +581,7 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
                     auto_matched += 1
                 else:
                     with SessionLocal() as db:
-                        add_pending_resolution(db, sp_id, name, ranked[:10])
+                        add_pending_resolution(db, sp_id, name, [dict(x) for x in ranked[:10]])
                         upsert_artist_map(
                             db, sp_id, name, None, None, float(ranked[0]["score"]) if ranked else 0.0, False
                         )
@@ -599,7 +602,7 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
         _job_set(
             job_id,
             state="done",
-            finished_at=datetime.now(timezone.utc).isoformat(),
+            finished_at=datetime.now(UTC).isoformat(),
             processed=processed,
             auto_matched=auto_matched,
             pending_count=pending,
@@ -709,7 +712,7 @@ def _score_track_candidate(
     # duration bonus if within 3 seconds
     try:
         _d = cand.get("duration")
-        cdur = int(_d) if isinstance(_d, (int, float, str)) else None
+        cdur = int(_d) if isinstance(_d, int | float | str) else None
         if sp_dur and cdur and abs(int(sp_dur) - cdur) <= 3:
             s += 10.0
     except Exception:
@@ -718,7 +721,7 @@ def _score_track_candidate(
 
 
 def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
-    _job_set(job_id, state="running", started_at=datetime.now(timezone.utc).isoformat())
+    _job_set(job_id, state="running", started_at=datetime.now(UTC).isoformat())
     try:
         try:
             sp = get_spotify_client()
@@ -841,7 +844,7 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
                             t_artist_id,
                             isrc,
                             dur,
-                            (top.get("duration") if isinstance(top.get("duration"), (int, float)) else None),
+                            (top.get("duration") if isinstance(top.get("duration"), int | float) else None),
                             float(top.get("score", 0.0)),
                             True,
                         )
@@ -890,7 +893,7 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
         _job_set(
             job_id,
             state="done",
-            finished_at=datetime.now(timezone.utc).isoformat(),
+            finished_at=datetime.now(UTC).isoformat(),
             processed=processed,
             auto_matched=auto_matched,
             pending_count=pending,
@@ -900,7 +903,7 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
 
 
 def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
-    _job_set(job_id, state="running", started_at=datetime.now(timezone.utc).isoformat())
+    _job_set(job_id, state="running", started_at=datetime.now(UTC).isoformat())
     try:
         try:
             sp = get_spotify_client()
@@ -1076,7 +1079,7 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
                                 t_artist_id,
                                 meta.get("isrc"),
                                 meta.get("duration"),
-                                (top.get("duration") if isinstance(top.get("duration"), (int, float)) else None),
+                                (top.get("duration") if isinstance(top.get("duration"), int | float) else None),
                                 float(top.get("score", 0.0)),
                                 True,
                             )
@@ -1157,7 +1160,7 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
         _job_set(
             job_id,
             state="done",
-            finished_at=datetime.now(timezone.utc).isoformat(),
+            finished_at=datetime.now(UTC).isoformat(),
             processed=processed,
             created=created,
             updated=updated,
@@ -1487,7 +1490,7 @@ async def library_artists(request: Request):
 
 def _run_refresh_genres_job(job_id: str, missing_only: bool = True) -> None:
     _log.info(f"[job {job_id}] Refresh genres: start (missing_only={missing_only})")
-    _job_set(job_id, state="running", started_at=datetime.now(timezone.utc).isoformat())
+    _job_set(job_id, state="running", started_at=datetime.now(UTC).isoformat())
     try:
         try:
             sp = get_spotify_client()
@@ -1553,7 +1556,7 @@ def _run_refresh_genres_job(job_id: str, missing_only: bool = True) -> None:
                         processed += 1
                         continue
                     try:
-                        m.genres_json = json.dumps(gens)  # type: ignore[assignment]
+                        m.genres_json = json.dumps(gens)
                         updated += 1
                     except Exception:
                         skipped += 1
@@ -1568,7 +1571,7 @@ def _run_refresh_genres_job(job_id: str, missing_only: bool = True) -> None:
         _job_set(
             job_id,
             state="done",
-            finished_at=datetime.now(timezone.utc).isoformat(),
+            finished_at=datetime.now(UTC).isoformat(),
             processed=processed,
             updated=updated,
             skipped=skipped,
@@ -1683,7 +1686,7 @@ async def library_playlists(request: Request):
             # attach stats for all to enable proper sorting
             for it in all_items:
                 try:
-                    it["stats"] = get_playlist_stats(db, it["spotify_id"])  # type: ignore[index]
+                    it["stats"] = get_playlist_stats(db, it["spotify_id"])
                 except Exception:
                     it["stats"] = {"count": 0, "total_seconds": 0}
             reverse = order.lower() == "desc"
@@ -1717,7 +1720,7 @@ async def library_playlists(request: Request):
             # Attach stats for visible items only
             for it in items:
                 try:
-                    it["stats"] = get_playlist_stats(db, it["spotify_id"])  # type: ignore[index]
+                    it["stats"] = get_playlist_stats(db, it["spotify_id"])
                 except Exception:
                     it["stats"] = {"count": 0, "total_seconds": 0}
             pages = (total + page_size - 1) // page_size if page_size else 1
@@ -1872,7 +1875,7 @@ async def status_page(request: Request):
             "pending_tracks_count": len(pend_trks),
             "jobs": jobs_snapshot,
             "env_flags": env_flags,
-            "now": datetime.now(timezone.utc).isoformat(),
+            "now": datetime.now(UTC).isoformat(),
         },
     )
 

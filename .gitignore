@@ -35,6 +35,7 @@ coverage.xml
 logs/
 *.log
 .cache/
+.cache
 
 # Database / local state
 *.db

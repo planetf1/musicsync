@@ -10,7 +10,7 @@ authors = [
   { name = "planetf1" }
 ]
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 license = { text = "MIT" }
 keywords = ["spotify", "tidal", "sync", "fastapi", "music"]
 classifiers = [
@@ -63,7 +63,9 @@ dev = [
 
 [tool.ruff]
 line-length = 120
-target-version = "py310"
+target-version = "py313"
+
+[tool.ruff.lint]
 select = [
   "E",  # pycodestyle errors
   "F",  # pyflakes
@@ -71,15 +73,14 @@ select = [
   "I",  # isort
   "UP", # pyupgrade
 ]
-ignore = [
-]
+ignore = []
 
 [tool.ruff.format]
 quote-style = "preserve"
 indent-style = "space"
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.13"
 warn_unused_configs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
