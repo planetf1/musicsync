@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  <h2>Library — Tracks</h2>
+  <form method="get" action="/library/tracks" style="margin-bottom:10px; display:flex; gap:8px; align-items:center;">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search tracks…" />
+    <input type="hidden" name="sort" value="{{ sort }}" />
+    <input type="hidden" name="order" value="{{ order }}" />
+    <input type="hidden" name="page_size" value="{{ page_size }}" />
+    <button class="btn" type="submit">Search</button>
+    {% if q %}
+    <a class="btn" href="/library/tracks">Clear</a>
+    {% endif %}
+  </form>
+  <p>Showing {{ count }} of {{ total }} tracks.</p>
+  {% if not items %}
+    <p>No synced tracks yet. Run a sync, then check back.</p>
+  {% else %}
+  <div style="overflow-x:auto">
+    <table class="table">
+      <thead>
+        <tr>
+          {% set next_order = 'asc' if order=='desc' else 'desc' %}
+          <th><a href="/library/tracks?sort=last_synced_at&order={{ next_order if sort=='last_synced_at' else 'desc' }}&q={{ q }}&page_size={{ page_size }}">Last Synced{% if sort=='last_synced_at' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/tracks?sort=spotify_title&order={{ next_order if sort=='spotify_title' else 'asc' }}&q={{ q }}&page_size={{ page_size }}">Spotify Title{% if sort=='spotify_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/tracks?sort=spotify_artist&order={{ next_order if sort=='spotify_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size }}">Spotify Artist{% if sort=='spotify_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/tracks?sort=tidal_title&order={{ next_order if sort=='tidal_title' else 'asc' }}&q={{ q }}&page_size={{ page_size }}">TIDAL Title{% if sort=='tidal_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/tracks?sort=tidal_artist&order={{ next_order if sort=='tidal_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size }}">TIDAL Artist{% if sort=='tidal_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th>ISRC</th>
+          <th><a href="/library/tracks?sort=confidence&order={{ next_order if sort=='confidence' else 'desc' }}&q={{ q }}&page_size={{ page_size }}">Confidence{% if sort=='confidence' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+          <tr>
+            <td>{{ it.last_synced_at or '' }}</td>
+            <td>{{ it.spotify_title }}</td>
+            <td>{{ it.spotify_artist }}</td>
+            <td>
+              {% if it.tidal_id %}
+                <a href="https://tidal.com/browse/track/{{ it.tidal_id }}" target="_blank">{{ it.tidal_title }}</a>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td>{{ it.tidal_artist or '' }}</td>
+            <td>{{ it.isrc or '' }}</td>
+            <td>{{ '%.0f'|format(it.confidence or 0) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="pagination" style="margin-top:10px; display:flex; align-items:center; gap:8px;">
+    {% set prev_page = page - 1 %}
+    {% set next_page = page + 1 %}
+    <span>Page {{ page }} of {{ pages }}</span>
+    <a class="btn" href="/library/tracks?page={{ prev_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}" {% if page <= 1 %}style="pointer-events:none; opacity:0.5"{% endif %}>Prev</a>
+    <a class="btn" href="/library/tracks?page={{ next_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}" {% if page >= pages %}style="pointer-events:none; opacity:0.5"{% endif %}>Next</a>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}

@@ -33,6 +33,8 @@ from .storage import (
     add_track_sync_event,
     export_artists,
     export_tracks,
+    list_synced_artists,
+    list_synced_tracks,
 )
 from .spotify_client import get_authorize_url, exchange_code_for_token, get_spotify_client
 from .tidal_client import (
@@ -811,3 +813,95 @@ async def backup_tracks():
     with SessionLocal() as db:
         data = export_tracks(db)
     return JSONResponse(data)
+
+
+# ---- Library views (synced items) ----
+
+@app.get("/library/artists", response_class=HTMLResponse)
+async def library_artists(request: Request):
+    # Parse query params
+    q = request.query_params.get("q") or None
+    sort = request.query_params.get("sort") or "last_synced_at"
+    order = request.query_params.get("order") or "desc"
+    try:
+        page = int(request.query_params.get("page") or 1)
+    except ValueError:
+        page = 1
+    try:
+        page_size = int(request.query_params.get("page_size") or 50)
+    except ValueError:
+        page_size = 50
+
+    with SessionLocal() as db:
+        items, total = list_synced_artists(
+            db,
+            search=q,
+            sort=sort,
+            order=order,
+            page=page,
+            page_size=page_size,
+        )
+    pages = (total + page_size - 1) // page_size if page_size else 1
+    if page < 1:
+        page = 1
+    if pages and page > pages:
+        page = pages
+    return templates.TemplateResponse(
+        "library_artists.html",
+        {
+            "request": request,
+            "items": items,
+            "count": len(items),
+            "total": total,
+            "page": page,
+            "pages": pages,
+            "page_size": page_size,
+            "sort": sort,
+            "order": order,
+            "q": q or "",
+        },
+    )
+
+
+@app.get("/library/tracks", response_class=HTMLResponse)
+async def library_tracks(request: Request):
+    q = request.query_params.get("q") or None
+    sort = request.query_params.get("sort") or "last_synced_at"
+    order = request.query_params.get("order") or "desc"
+    try:
+        page = int(request.query_params.get("page") or 1)
+    except ValueError:
+        page = 1
+    try:
+        page_size = int(request.query_params.get("page_size") or 50)
+    except ValueError:
+        page_size = 50
+    with SessionLocal() as db:
+        items, total = list_synced_tracks(
+            db,
+            search=q,
+            sort=sort,
+            order=order,
+            page=page,
+            page_size=page_size,
+        )
+    pages = (total + page_size - 1) // page_size if page_size else 1
+    if page < 1:
+        page = 1
+    if pages and page > pages:
+        page = pages
+    return templates.TemplateResponse(
+        "library_tracks.html",
+        {
+            "request": request,
+            "items": items,
+            "count": len(items),
+            "total": total,
+            "page": page,
+            "pages": pages,
+            "page_size": page_size,
+            "sort": sort,
+            "order": order,
+            "q": q or "",
+        },
+    )

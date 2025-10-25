@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import (
     Boolean,
@@ -390,3 +390,137 @@ def export_tracks(db: OrmSession) -> List[Dict[str, Any]]:
             }
         )
     return out
+
+
+# Library listing helpers (for UI)
+
+def list_synced_artists(
+    db: OrmSession,
+    *,
+    search: Optional[str] = None,
+    sort: str = "last_synced_at",
+    order: str = "desc",
+    page: int = 1,
+    page_size: int = 50,
+) -> Tuple[List[Dict[str, Any]], int]:
+    from sqlalchemy import func, or_
+
+    q = db.query(ArtistMap).filter(ArtistMap.tidal_id.isnot(None))
+    if search:
+        s = f"%{search.lower()}%"
+        q = q.filter(
+            or_(
+                func.lower(ArtistMap.spotify_name).like(s),
+                func.lower(ArtistMap.tidal_name).like(s),
+                func.lower(ArtistMap.spotify_id).like(s),
+                func.lower(ArtistMap.tidal_id).like(s),
+            )
+        )
+
+    total = q.count()
+
+    # Sorting
+    sort_map = {
+        "last_synced_at": ArtistMap.last_synced_at,
+        "spotify_name": ArtistMap.spotify_name,
+        "tidal_name": ArtistMap.tidal_name,
+        "confidence": ArtistMap.confidence,
+    }
+    col = sort_map.get(sort, ArtistMap.last_synced_at)
+    if order.lower() == "asc":
+        q = q.order_by(col.asc().nullslast())
+    else:
+        q = q.order_by(col.desc().nullslast())
+
+    # Pagination
+    if page < 1:
+        page = 1
+    if page_size < 1:
+        page_size = 50
+    offset = (page - 1) * page_size
+    q = q.offset(offset).limit(page_size)
+
+    rows = q.all()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "spotify_id": r.spotify_id,
+                "spotify_name": r.spotify_name,
+                "tidal_id": r.tidal_id,  # type: ignore[attr-defined]
+                "tidal_name": r.tidal_name,  # type: ignore[attr-defined]
+                "confidence": float(r.confidence),  # type: ignore[arg-type]
+                "resolved": bool(r.resolved),  # type: ignore[arg-type]
+                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
+            }
+        )
+    return out, total
+
+
+def list_synced_tracks(
+    db: OrmSession,
+    *,
+    search: Optional[str] = None,
+    sort: str = "last_synced_at",
+    order: str = "desc",
+    page: int = 1,
+    page_size: int = 50,
+) -> Tuple[List[Dict[str, Any]], int]:
+    from sqlalchemy import func, or_
+
+    q = db.query(TrackMap).filter(TrackMap.tidal_id.isnot(None))
+    if search:
+        s = f"%{search.lower()}%"
+        q = q.filter(
+            or_(
+                func.lower(TrackMap.spotify_title).like(s),
+                func.lower(TrackMap.spotify_artist).like(s),
+                func.lower(TrackMap.tidal_title).like(s),
+                func.lower(TrackMap.tidal_artist).like(s),
+                func.lower(TrackMap.isrc).like(s),
+                func.lower(TrackMap.spotify_id).like(s),
+                func.lower(TrackMap.tidal_id).like(s),
+            )
+        )
+
+    total = q.count()
+
+    sort_map = {
+        "last_synced_at": TrackMap.last_synced_at,
+        "spotify_title": TrackMap.spotify_title,
+        "spotify_artist": TrackMap.spotify_artist,
+        "tidal_title": TrackMap.tidal_title,
+        "tidal_artist": TrackMap.tidal_artist,
+        "confidence": TrackMap.confidence,
+    }
+    col = sort_map.get(sort, TrackMap.last_synced_at)
+    if order.lower() == "asc":
+        q = q.order_by(col.asc().nullslast())
+    else:
+        q = q.order_by(col.desc().nullslast())
+
+    if page < 1:
+        page = 1
+    if page_size < 1:
+        page_size = 50
+    offset = (page - 1) * page_size
+    q = q.offset(offset).limit(page_size)
+
+    rows = q.all()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "spotify_id": r.spotify_id,
+                "spotify_title": r.spotify_title,
+                "spotify_artist": r.spotify_artist,
+                "tidal_id": r.tidal_id,  # type: ignore[attr-defined]
+                "tidal_title": r.tidal_title,  # type: ignore[attr-defined]
+                "tidal_artist": r.tidal_artist,  # type: ignore[attr-defined]
+                "isrc": r.isrc,  # type: ignore[attr-defined]
+                "confidence": float(r.confidence),  # type: ignore[arg-type]
+                "resolved": bool(r.resolved),  # type: ignore[arg-type]
+                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
+            }
+        )
+    return out, total
