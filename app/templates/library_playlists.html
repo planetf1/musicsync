@@ -29,18 +29,18 @@
         <tr>
           {% set next_order = 'asc' if order=='desc' else 'desc' %}
           {% set page_size_param = 'all' if page_size == 0 else page_size %}
-          <th><a href="/library/playlists?sort=last_synced_at&order={{ next_order if sort=='last_synced_at' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}">Last Synced{% if sort=='last_synced_at' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th class="hide-sm"><a href="/library/playlists?sort=last_synced_at&order={{ next_order if sort=='last_synced_at' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}">Last Synced{% if sort=='last_synced_at' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th><a href="/library/playlists?sort=spotify_name&order={{ next_order if sort=='spotify_name' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Playlist{% if sort=='spotify_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th class="num"><a href="/library/playlists?sort=tracks&order={{ next_order if sort=='tracks' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}">Tracks{% if sort=='tracks' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th class="num"><a href="/library/playlists?sort=duration&order={{ next_order if sort=='duration' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}">Duration{% if sort=='duration' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th>Spotify</th>
-          <th><a href="/library/playlists?sort=tidal_name&order={{ next_order if sort=='tidal_name' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL{% if sort=='tidal_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th class="hide-sm"><a href="/library/playlists?sort=tidal_name&order={{ next_order if sort=='tidal_name' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL{% if sort=='tidal_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
         </tr>
       </thead>
       <tbody>
         {% for it in items %}
           <tr>
-            <td>{{ it.last_synced_at or '' }}</td>
+            <td class="hide-sm">{{ it.last_synced_at or '' }}</td>
             <td><a href="/library/playlists/{{ it.spotify_id }}">{{ it.spotify_name }}</a></td>
             {% set st = it.stats if it.stats is defined else None %}
             <td class="num">{% if st %}{{ st.count }}{% else %}—{% endif %}</td>
@@ -67,10 +67,10 @@
         {% endfor %}
       </tbody>
     </table>
-  </div>
+            <td>
   <div class="pagination" style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap: wrap;">
     {% set prev_page = page - 1 %}
-    {% set next_page = page + 1 %}
+            <td class="hide-sm">
     {% set page_size_param = 'all' if page_size == 0 else page_size %}
     <span>Page {{ page }} of {{ pages }}</span>
     <a class="btn" href="/library/playlists?page={{ prev_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}" {% if page <= 1 %}style="pointer-events:none; opacity:0.5"{% endif %}>Prev</a>

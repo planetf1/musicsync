@@ -48,8 +48,8 @@
           <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=spotify_title&order={{ next_order if sort=='spotify_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Title{% if sort=='spotify_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=spotify_artist&order={{ next_order if sort=='spotify_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Artist{% if sort=='spotify_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th class="num">Duration</th>
-          <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=tidal_title&order={{ next_order if sort=='tidal_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Title{% if sort=='tidal_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
-          <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=tidal_artist&order={{ next_order if sort=='tidal_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Artist{% if sort=='tidal_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th class="hide-sm"><a href="/library/playlists/{{ playlist.spotify_id }}?sort=tidal_title&order={{ next_order if sort=='tidal_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Title{% if sort=='tidal_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th class="hide-sm"><a href="/library/playlists/{{ playlist.spotify_id }}?sort=tidal_artist&order={{ next_order if sort=='tidal_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Artist{% if sort=='tidal_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
         </tr>
       </thead>
       <tbody>
@@ -71,14 +71,14 @@
                 —
               {% endif %}
             </td>
-            <td>
+            <td class="hide-sm">
               {% if it.tidal_track_id %}
                 <a href="https://tidal.com/browse/track/{{ it.tidal_track_id }}" target="_blank" rel="noopener">{{ it.tidal_title or '—' }}</a>
               {% else %}
                 —
               {% endif %}
             </td>
-            <td>{{ it.tidal_artist or '—' }}</td>
+            <td class="hide-sm">{{ it.tidal_artist or '—' }}</td>
           </tr>
         {% endfor %}
       </tbody>

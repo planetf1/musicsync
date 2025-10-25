@@ -50,5 +50,14 @@ select,input[type="text"],input[type="number"],input[type="search"]{padding:6px;
 	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
+/* Small screens: simplify tables and reduce padding */
+@media (max-width: 640px){
+	body{ font-size:14px }
+	.table th,.table td{ padding:6px }
+	.hide-sm{ display:none }
+	header{ padding:10px 12px }
+	nav a{ margin-right:8px }
+}
+
 /* Cards */
 .card{background:var(--card);border:1px solid var(--border);border-radius:8px}
