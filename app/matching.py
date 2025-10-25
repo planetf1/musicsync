@@ -1,23 +1,23 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from rapidfuzz import fuzz, process
 
 
-def score_artist_match(query: str, candidates: List[Dict[str, str]]) -> List[Dict[str, Any]]:
+def score_artist_match(query: str, candidates: list[dict[str, str]]) -> list[dict[str, Any]]:
     """
     Return candidates with fuzzy ratio score sorted desc.
     Each candidate: {"id": str, "name": str}
     """
-    results: List[Tuple[str, float, Dict[str, str]]] = process.extract(
+    results: list[tuple[str, float, dict[str, str]]] = process.extract(
         query,
         {c["id"]: c["name"] for c in candidates},
         scorer=fuzz.WRatio,
         limit=None,
     )
     # process.extract returns list of tuples: (key, score, ...)
-    ranked: List[Dict[str, Any]] = []
+    ranked: list[dict[str, Any]] = []
     for key, score, _ in results:
         name = next((c["name"] for c in candidates if c["id"] == key), None)
         if name is None:

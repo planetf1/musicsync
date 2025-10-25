@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import os
 import time
-from typing import Dict
 
 import spotipy
-from spotipy.oauth2 import SpotifyOAuth
 from dotenv import load_dotenv
+from spotipy.oauth2 import SpotifyOAuth
 
-from .storage import load_token, save_token, SessionLocal
+from .storage import SessionLocal, load_token, save_token
 
 SCOPES = [
     "user-follow-read",
@@ -32,7 +31,7 @@ def get_authorize_url() -> str:
     return oauth.get_authorize_url()
 
 
-def exchange_code_for_token(code: str) -> Dict:
+def exchange_code_for_token(code: str) -> dict:
     oauth = _get_oauth()
     token_info = oauth.get_access_token(code, as_dict=True)
     with SessionLocal() as db:
@@ -40,7 +39,7 @@ def exchange_code_for_token(code: str) -> Dict:
     return token_info
 
 
-def _refresh_if_needed(token_info: Dict) -> Dict:
+def _refresh_if_needed(token_info: dict) -> dict:
     # spotipy token_info contains 'expires_at' (epoch seconds)
     if token_info.get("expires_at", 0) - int(time.time()) < 60:
         oauth = _get_oauth()

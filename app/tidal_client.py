@@ -2,16 +2,15 @@ from __future__ import annotations
 
 import threading
 from datetime import datetime, timezone
-from typing import Dict, Optional, Any
+from typing import Any
 
 import tidalapi
 
-from .storage import load_token, save_token, SessionLocal
-
+from .storage import SessionLocal, load_token, save_token
 
 _session_lock = threading.Lock()
-_cached_session: Optional[Any] = None
-_login_state: Dict[str, Any] = {"pending": False, "connected": False, "error": None}
+_cached_session: Any | None = None
+_login_state: dict[str, Any] = {"pending": False, "connected": False, "error": None}
 _login_in_progress: bool = False
 
 
@@ -100,7 +99,7 @@ def is_logged_in() -> bool:
         return False
 
 
-def get_login_url_and_worker() -> Dict[str, object]:
+def get_login_url_and_worker() -> dict[str, object]:
     """
     Start TIDAL device/remote login and return details needed for UI, then
     wait for completion in a background thread and persist the session.
@@ -177,7 +176,7 @@ def get_session() -> Any:
     return sess
 
 
-def get_login_state() -> Dict[str, Any]:
+def get_login_state() -> dict[str, Any]:
     """Return current login flow state for diagnostics/UI."""
     # Return a shallow copy to prevent external mutation
     return dict(_login_state)

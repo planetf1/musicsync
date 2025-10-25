@@ -1,65 +1,70 @@
 from __future__ import annotations
 
-from typing import List, Dict, Optional, Any
 import json
 import logging
+import os
+import re
 import threading
+import unicodedata
 import uuid
 from datetime import datetime, timezone
-from tidalapi import artist as tidal_artist
-import re
-import unicodedata
-import os
+from typing import Any
 
-from fastapi import FastAPI, Request, HTTPException, Form
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse, PlainTextResponse
-from fastapi import UploadFile, File
-from fastapi.templating import Jinja2Templates
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
+from tidalapi import artist as tidal_artist
 
+from .matching import score_artist_match
+from .spotify_client import exchange_code_for_token, get_authorize_url, get_spotify_client
 from .storage import (
-    init_db,
-    SessionLocal,
     DB_PATH,
-    engine,
+    ArtistMap,
+    SessionLocal,
+    TrackMap,
+    add_artist_sync_event,
     add_pending_resolution,
-    delete_pending,
-    get_pending,
-    upsert_artist_map,
-    delete_pending_by_spotify_id,
-    cleanup_pending_for_resolved,
-    upsert_track_map,
     add_pending_track_resolution,
-    get_pending_tracks,
+    add_track_sync_event,
+    cleanup_pending_for_resolved,
+    cleanup_pending_tracks_for_resolved,
+    delete_pending,
+    delete_pending_by_spotify_id,
     delete_pending_track,
     delete_pending_track_by_spotify_id,
-    cleanup_pending_tracks_for_resolved,
-    add_artist_sync_event,
-    add_track_sync_event,
+    engine,
     export_artists,
-    export_tracks,
     export_playlists,
-    list_synced_artists,
-    list_synced_tracks,
-    list_synced_playlists,
-    TrackMap,
-    upsert_playlist_map,
+    export_tracks,
+    get_pending,
+    get_pending_tracks,
     get_playlist_map,
-    replace_playlist_tracks,
-    list_playlist_tracks,
-    update_artist_genres,
-    list_genre_counts,
     get_playlist_stats,
-    ArtistMap,
+    init_db,
+    list_genre_counts,
+    list_playlist_tracks,
+    list_synced_artists,
+    list_synced_playlists,
+    list_synced_tracks,
+    replace_playlist_tracks,
+    update_artist_genres,
+    upsert_artist_map,
+    upsert_playlist_map,
+    upsert_track_map,
 )
-from .spotify_client import get_authorize_url, exchange_code_for_token, get_spotify_client
 from .tidal_client import (
-    get_session as get_tidal_session,
-    get_login_url_and_worker,
-    is_logged_in as tidal_logged_in,
     get_login_state as tidal_login_state,
 )
-from .matching import score_artist_match
+from .tidal_client import (
+    get_login_url_and_worker,
+)
+from .tidal_client import (
+    get_session as get_tidal_session,
+)
+from .tidal_client import (
+    is_logged_in as tidal_logged_in,
+)
 
 app = FastAPI(title="MusicSync")
 init_db()
@@ -69,7 +74,7 @@ app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
 # --- Simple in-memory job tracking for background syncs ---
 _jobs_lock = threading.Lock()
-_jobs: Dict[str, Dict[str, object]] = {}
+_jobs: dict[str, dict[str, object]] = {}
 _log = logging.getLogger("musicsync")
 # Ensure our app logger emits to console even under uvicorn's logging config
 if not _log.handlers:
@@ -153,7 +158,7 @@ async def spotify_login():
 
 
 @app.get("/auth/spotify/callback")
-async def spotify_callback(code: Optional[str] = None, error: Optional[str] = None):
+async def spotify_callback(code: str | None = None, error: str | None = None):
     if error:
         raise HTTPException(status_code=400, detail=error)
     if not code:
@@ -188,10 +193,10 @@ async def tidal_status():
 
 # --- Sync Followed Artists ---
 
-async def fetch_spotify_followed_artists() -> List[Dict[str, str]]:
+async def fetch_spotify_followed_artists() -> list[dict[str, str]]:
     sp = get_spotify_client()
-    artists: List[Dict[str, str]] = []
-    after: Optional[str] = None
+    artists: list[dict[str, str]] = []
+    after: str | None = None
     while True:
         page = sp.current_user_followed_artists(limit=50, after=after) or {}
         artists_block = page.get("artists") or {}
@@ -212,17 +217,17 @@ def _tidal_favorite_artists_set(sess) -> set:
     return {str(a.id) for a in favs}
 
 
-def _tidal_search_artists(sess: Any, name: str) -> List[Dict[str, str]]:
+def _tidal_search_artists(sess: Any, name: str) -> list[dict[str, str]]:
     """Search for artists on TIDAL with multiple fallbacks and robust parsing.
 
     Handles differing tidalapi return shapes (dict or list) and logs issues.
     """
 
-    def extract_artists(res: Any) -> List[Dict[str, str]]:
+    def extract_artists(res: Any) -> list[dict[str, str]]:
         try:
             if not res:
                 return []
-            candidates: List[Any] = []
+            candidates: list[Any] = []
             if isinstance(res, dict):
                 # Try common keys
                 for k in ("artists", "Artists", "artist", "Artist"):
@@ -234,7 +239,7 @@ def _tidal_search_artists(sess: Any, name: str) -> List[Dict[str, str]]:
                     candidates = res.get("artists")  # type: ignore[assignment]
             elif isinstance(res, list):
                 candidates = res
-            out: List[Dict[str, str]] = []
+            out: list[dict[str, str]] = []
             for a in candidates:
                 try:
                     aid = getattr(a, "id", None) if not isinstance(a, dict) else a.get("id")
@@ -287,12 +292,12 @@ def _tidal_search_artists(sess: Any, name: str) -> List[Dict[str, str]]:
     return []
 
 
-def _tidal_search_tracks(sess: Any, title: str, artist: Optional[str] = None) -> List[Dict[str, Any]]:
+def _tidal_search_tracks(sess: Any, title: str, artist: str | None = None) -> list[dict[str, Any]]:
     """Search for tracks on TIDAL and extract comparable fields."""
-    def extract_tracks(res: Any) -> List[Dict[str, Any]]:
-        out: List[Dict[str, Any]] = []
+    def extract_tracks(res: Any) -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
         try:
-            items: List[Any] = []
+            items: list[Any] = []
             if isinstance(res, dict):
                 for k in ("tracks", "Tracks", "track", "Track"):
                     if k in res and isinstance(res[k], list):
@@ -307,7 +312,7 @@ def _tidal_search_tracks(sess: Any, title: str, artist: Optional[str] = None) ->
                     duration = getattr(t, "duration", None) if not isinstance(t, dict) else t.get("duration")
                     isrc = getattr(t, "isrc", None) if not isinstance(t, dict) else t.get("isrc")
                     # artists may be list on attr .artists, include id+name if available
-                    arts: List[Dict[str, Any]] = []
+                    arts: list[dict[str, Any]] = []
                     if not isinstance(t, dict):
                         try:
                             arts = [
@@ -454,8 +459,8 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
             return
 
         # Fetch data
-        artists: List[Dict[str, str]] = []
-        after: Optional[str] = None
+        artists: list[dict[str, str]] = []
+        after: str | None = None
         while True:
             page = sp.current_user_followed_artists(limit=50, after=after) or {}
             artists_block = page.get("artists") or {}
@@ -655,7 +660,7 @@ def _tidal_favorite_tracks_set(sess) -> set:
         return set()
 
 
-def _score_track_candidate(sp_title: str, sp_artist: str, sp_isrc: Optional[str], sp_dur: Optional[int], cand: Dict[str, Any]) -> float:
+def _score_track_candidate(sp_title: str, sp_artist: str, sp_isrc: str | None, sp_dur: int | None, cand: dict[str, Any]) -> float:
     # ISRC exact match wins
     if sp_isrc and cand.get("isrc") and str(cand.get("isrc")).upper() == sp_isrc.upper():
         return 1000.0
@@ -704,7 +709,7 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
             return
 
         # Fetch liked tracks from Spotify
-        tracks: List[Dict[str, Any]] = []
+        tracks: list[dict[str, Any]] = []
         offset = 0
         page_size = 50
         while True:
@@ -764,7 +769,7 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
             try:
                 cands = _tidal_search_tracks(sess, title, artist)
                 # Evaluate candidates
-                ranked: List[Dict[str, Any]] = []
+                ranked: list[dict[str, Any]] = []
                 for c in cands:
                     score = _score_track_candidate(title, artist, isrc, dur, c)
                     c2 = dict(c)
@@ -869,7 +874,7 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
             return
 
         # Fetch user-owned Spotify playlists
-        playlists: List[Dict[str, Any]] = []
+        playlists: list[dict[str, Any]] = []
         offset = 0
         page_size = 50
         while True:
@@ -900,7 +905,7 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
             sp_pl_name = pl["name"]
             try:
                 # Ensure we have a TIDAL playlist mapped/created
-                tidal_pl_id: Optional[str] = None
+                tidal_pl_id: str | None = None
                 with SessionLocal() as db:
                     m = get_playlist_map(db, sp_pl_id)
                     if m and m.get("tidal_id"):
@@ -938,8 +943,8 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
                     pass
 
                 # Fetch Spotify playlist tracks in order
-                sp_track_ids: List[str] = []
-                sp_tracks_meta: Dict[str, Dict[str, Any]] = {}
+                sp_track_ids: list[str] = []
+                sp_tracks_meta: dict[str, dict[str, Any]] = {}
                 off2 = 0
                 while True:
                     page = sp.playlist_tracks(sp_pl_id, limit=100, offset=off2) or {}
@@ -969,8 +974,8 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
                         break
 
                 # Map to TIDAL track IDs, using existing TrackMap or fallback matching
-                tidal_to_add_ordered: List[str] = []
-                sid_to_meta: Dict[str, Dict[str, Any]] = {}
+                tidal_to_add_ordered: list[str] = []
+                sid_to_meta: dict[str, dict[str, Any]] = {}
                 with SessionLocal() as db:
                     for sid in sp_track_ids:
                         tm = db.get(TrackMap, sid)
@@ -984,7 +989,7 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
                             continue
                         meta = sp_tracks_meta.get(sid) or {}
                         cands = _tidal_search_tracks(sess, meta.get("title") or "", meta.get("artist") or "")
-                        ranked: List[Dict[str, Any]] = []
+                        ranked: list[dict[str, Any]] = []
                         for c in cands:
                             score = _score_track_candidate(meta.get("title") or "", meta.get("artist") or "", meta.get("isrc"), meta.get("duration"), c)
                             c2 = dict(c)
@@ -1037,7 +1042,7 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
                             add_pending_track_resolution(db, sid, meta.get("title") or "", meta.get("artist") or "", meta.get("isrc"), ranked[:10])
 
                 # Add any missing to the playlist, skipping duplicates
-                to_add_final: List[str] = [tid for tid in tidal_to_add_ordered if tid not in existing_ids]
+                to_add_final: list[str] = [tid for tid in tidal_to_add_ordered if tid not in existing_ids]
                 # Chunk adds for API limits
                 add_method = getattr(tidal_playlist_obj, "add", None)
                 if to_add_final and callable(add_method):
@@ -1062,7 +1067,7 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
                 with SessionLocal() as db:
                     upsert_playlist_map(db, sp_pl_id, sp_pl_name, tidal_pl_id, getattr(tidal_playlist_obj, "name", None))
                     # Replace playlist tracks snapshot with current Spotify order
-                    entries: List[Dict[str, Any]] = []
+                    entries: list[dict[str, Any]] = []
                     for idx, sid in enumerate(sp_track_ids, start=1):
                         meta = sp_tracks_meta.get(sid) or {}
                         tmeta = sid_to_meta.get(sid) or {}

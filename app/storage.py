@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from sqlalchemy import (
     Boolean,
@@ -15,7 +15,8 @@ from sqlalchemy import (
     Text,
     create_engine,
 )
-from sqlalchemy.orm import declarative_base, sessionmaker, Session as OrmSession
+from sqlalchemy.orm import Session as OrmSession
+from sqlalchemy.orm import declarative_base, sessionmaker
 
 DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "musicsync.db")
 engine = create_engine(f"sqlite:///{DB_PATH}", future=True)
@@ -197,7 +198,7 @@ def get_db():
 
 # Helper functions
 
-def save_token(db: OrmSession, service: str, data: Dict[str, Any]) -> None:
+def save_token(db: OrmSession, service: str, data: dict[str, Any]) -> None:
     payload = json.dumps(data)
     existing = db.get(Token, service)
     if existing:
@@ -208,7 +209,7 @@ def save_token(db: OrmSession, service: str, data: Dict[str, Any]) -> None:
     db.commit()
 
 
-def load_token(db: OrmSession, service: str) -> Optional[Dict[str, Any]]:
+def load_token(db: OrmSession, service: str) -> dict[str, Any] | None:
     tok = db.get(Token, service)
     if not tok:
         return None
@@ -222,8 +223,8 @@ def upsert_artist_map(
     db: OrmSession,
     spotify_id: str,
     spotify_name: str,
-    tidal_id: Optional[str],
-    tidal_name: Optional[str],
+    tidal_id: str | None,
+    tidal_name: str | None,
     confidence: float,
     resolved: bool,
 ) -> None:
@@ -239,7 +240,7 @@ def upsert_artist_map(
     db.commit()
 
 
-def update_artist_genres(db: OrmSession, spotify_id: str, genres: Optional[List[str]]) -> None:
+def update_artist_genres(db: OrmSession, spotify_id: str, genres: list[str] | None) -> None:
     """Update stored genres for a Spotify artist.
 
     Genres are stored as a JSON-encoded list on ArtistMap.genres_json. This does not
@@ -257,7 +258,7 @@ def update_artist_genres(db: OrmSession, spotify_id: str, genres: Optional[List[
 
 
 def add_pending_resolution(
-    db: OrmSession, spotify_id: str, spotify_name: str, candidates: List[Dict[str, Any]]
+    db: OrmSession, spotify_id: str, spotify_name: str, candidates: list[dict[str, Any]]
 ) -> None:
     # Remove any existing pending for this spotify_id to keep latest
     db.query(PendingResolution).filter(PendingResolution.spotify_id == spotify_id).delete()
@@ -269,9 +270,9 @@ def add_pending_resolution(
     db.commit()
 
 
-def get_pending(db: OrmSession) -> List[Dict[str, Any]]:
+def get_pending(db: OrmSession) -> list[dict[str, Any]]:
     rows = db.query(PendingResolution).order_by(PendingResolution.created_at.asc()).all()
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for r in rows:
         out.append(
             {
@@ -319,14 +320,14 @@ def upsert_track_map(
     spotify_id: str,
     spotify_title: str,
     spotify_artist: str,
-    spotify_artist_id: Optional[str],
-    tidal_id: Optional[str],
-    tidal_title: Optional[str],
-    tidal_artist: Optional[str],
-    tidal_artist_id: Optional[str],
-    isrc: Optional[str],
-    spotify_duration: Optional[int],
-    tidal_duration: Optional[int],
+    spotify_artist_id: str | None,
+    tidal_id: str | None,
+    tidal_title: str | None,
+    tidal_artist: str | None,
+    tidal_artist_id: str | None,
+    isrc: str | None,
+    spotify_duration: int | None,
+    tidal_duration: int | None,
     confidence: float,
     resolved: bool,
 ) -> None:
@@ -349,7 +350,7 @@ def upsert_track_map(
 
 
 def add_pending_track_resolution(
-    db: OrmSession, spotify_id: str, title: str, artist: str, isrc: Optional[str], candidates: List[Dict[str, Any]]
+    db: OrmSession, spotify_id: str, title: str, artist: str, isrc: str | None, candidates: list[dict[str, Any]]
 ) -> None:
     db.query(PendingTrackResolution).filter(PendingTrackResolution.spotify_id == spotify_id).delete()
     db.add(
@@ -364,9 +365,9 @@ def add_pending_track_resolution(
     db.commit()
 
 
-def get_pending_tracks(db: OrmSession) -> List[Dict[str, Any]]:
+def get_pending_tracks(db: OrmSession) -> list[dict[str, Any]]:
     rows = db.query(PendingTrackResolution).order_by(PendingTrackResolution.created_at.asc()).all()
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for r in rows:
         out.append(
             {
@@ -429,7 +430,7 @@ def add_track_sync_event(
     tidal_id: str,
     tidal_title: str,
     tidal_artist: str,
-    isrc: Optional[str],
+    isrc: str | None,
     source: str,
 ) -> None:
     db.add(
@@ -466,7 +467,7 @@ def upsert_playlist_map(
     db.commit()
 
 
-def get_playlist_map(db: OrmSession, spotify_id: str) -> Optional[Dict[str, Any]]:
+def get_playlist_map(db: OrmSession, spotify_id: str) -> dict[str, Any] | None:
     m = db.get(PlaylistMap, spotify_id)
     if not m:
         return None
@@ -479,7 +480,7 @@ def get_playlist_map(db: OrmSession, spotify_id: str) -> Optional[Dict[str, Any]
     }
 
 
-def replace_playlist_tracks(db: OrmSession, playlist_spotify_id: str, entries: List[Dict[str, Any]]) -> None:
+def replace_playlist_tracks(db: OrmSession, playlist_spotify_id: str, entries: list[dict[str, Any]]) -> None:
     """Replace the stored track snapshot for a playlist with the given ordered entries.
 
     Each entry should include: position (int, 1-based), spotify_track_id, spotify_title, spotify_artist,
@@ -511,12 +512,12 @@ def list_playlist_tracks(
     db: OrmSession,
     playlist_spotify_id: str,
     *,
-    search: Optional[str] = None,
+    search: str | None = None,
     sort: str = "position",
     order: str = "asc",
     page: int = 1,
     page_size: int = 50,
-) -> Tuple[List[Dict[str, Any]], int]:
+) -> tuple[list[dict[str, Any]], int]:
     from sqlalchemy import func, or_
 
     q = db.query(PlaylistTrack).filter(PlaylistTrack.playlist_spotify_id == playlist_spotify_id)
@@ -558,7 +559,7 @@ def list_playlist_tracks(
         q = q.offset(offset).limit(page_size)
 
     rows = q.all()
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for r in rows:
         out.append(
             {
@@ -577,7 +578,7 @@ def list_playlist_tracks(
     return out, total
 
 
-def get_playlist_stats(db: OrmSession, playlist_spotify_id: str) -> Dict[str, Any]:
+def get_playlist_stats(db: OrmSession, playlist_spotify_id: str) -> dict[str, Any]:
     """Return aggregate stats for a playlist: track count and total duration (seconds)."""
     from sqlalchemy import func
     q = db.query(
@@ -590,9 +591,9 @@ def get_playlist_stats(db: OrmSession, playlist_spotify_id: str) -> Dict[str, An
 
 # Export helpers (for backup)
 
-def export_artists(db: OrmSession) -> List[Dict[str, Any]]:
+def export_artists(db: OrmSession) -> list[dict[str, Any]]:
     rows = db.query(ArtistMap).all()
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for r in rows:
         try:
             genres = json.loads(str(getattr(r, "genres_json", "") or "[]"))
@@ -613,9 +614,9 @@ def export_artists(db: OrmSession) -> List[Dict[str, Any]]:
     return out
 
 
-def export_tracks(db: OrmSession) -> List[Dict[str, Any]]:
+def export_tracks(db: OrmSession) -> list[dict[str, Any]]:
     rows = db.query(TrackMap).all()
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for r in rows:
         out.append(
             {
@@ -638,9 +639,9 @@ def export_tracks(db: OrmSession) -> List[Dict[str, Any]]:
     return out
 
 
-def export_playlists(db: OrmSession) -> List[Dict[str, Any]]:
+def export_playlists(db: OrmSession) -> list[dict[str, Any]]:
     rows = db.query(PlaylistMap).all()
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for r in rows:
         out.append(
             {
@@ -659,13 +660,13 @@ def export_playlists(db: OrmSession) -> List[Dict[str, Any]]:
 def list_synced_artists(
     db: OrmSession,
     *,
-    search: Optional[str] = None,
-    genre: Optional[str] = None,
+    search: str | None = None,
+    genre: str | None = None,
     sort: str = "last_synced_at",
     order: str = "desc",
     page: int = 1,
     page_size: int = 50,
-) -> Tuple[List[Dict[str, Any]], int]:
+) -> tuple[list[dict[str, Any]], int]:
     from sqlalchemy import func, or_
 
     q = db.query(ArtistMap).filter(ArtistMap.tidal_id.isnot(None))
@@ -717,9 +718,9 @@ def list_synced_artists(
                 page_size = 25
             offset = (page - 1) * page_size
             rows = q.offset(offset).limit(page_size).all()
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     # Build output with genres parsed
-    enriched: List[Dict[str, Any]] = []
+    enriched: list[dict[str, Any]] = []
     for r in rows:
         try:
             genres = json.loads(str(getattr(r, "genres_json", "") or "[]"))
@@ -739,7 +740,7 @@ def list_synced_artists(
         )
     # If in-memory sort by genre requested, apply now and paginate
     if in_memory_sort:
-        def gkey(item: Dict[str, Any]) -> str:
+        def gkey(item: dict[str, Any]) -> str:
             if item.get("genres"):
                 return str(item["genres"][0]).lower()
             return "~"  # tilde sorts after letters
@@ -759,8 +760,8 @@ def list_synced_artists(
 def list_genre_counts(
     db: OrmSession,
     *,
-    search: Optional[str] = None,
-) -> List[Tuple[str, int]]:
+    search: str | None = None,
+) -> list[tuple[str, int]]:
     """Compute aggregated genre counts across synced artists.
 
     Applies the same text search filter as list_synced_artists when provided.
@@ -779,7 +780,7 @@ def list_genre_counts(
             )
         )
     rows = q.all()
-    counts: Dict[str, int] = {}
+    counts: dict[str, int] = {}
     for r in rows:
         try:
             genres = json.loads(str(getattr(r, "genres_json", "") or "[]"))
@@ -801,12 +802,12 @@ def list_genre_counts(
 def list_synced_tracks(
     db: OrmSession,
     *,
-    search: Optional[str] = None,
+    search: str | None = None,
     sort: str = "last_synced_at",
     order: str = "desc",
     page: int = 1,
     page_size: int = 50,
-) -> Tuple[List[Dict[str, Any]], int]:
+) -> tuple[list[dict[str, Any]], int]:
     from sqlalchemy import func, or_
 
     q = db.query(TrackMap).filter(TrackMap.tidal_id.isnot(None))
@@ -852,7 +853,7 @@ def list_synced_tracks(
         q = q.offset(offset).limit(page_size)
 
     rows = q.all()
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for r in rows:
         out.append(
             {
@@ -878,12 +879,12 @@ def list_synced_tracks(
 def list_synced_playlists(
     db: OrmSession,
     *,
-    search: Optional[str] = None,
+    search: str | None = None,
     sort: str = "last_synced_at",
     order: str = "desc",
     page: int = 1,
     page_size: int = 50,
-) -> Tuple[List[Dict[str, Any]], int]:
+) -> tuple[list[dict[str, Any]], int]:
     from sqlalchemy import func, or_
 
     q = db.query(PlaylistMap).filter(PlaylistMap.tidal_id.isnot(None))
@@ -922,7 +923,7 @@ def list_synced_playlists(
         q = q.offset(offset).limit(page_size)
 
     rows = q.all()
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for r in rows:
         out.append(
             {
