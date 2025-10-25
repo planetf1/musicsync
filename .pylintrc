@@ -1,0 +1,43 @@
+[MASTER]
+# Don't recurse into common virtualenv or cache folders
+ignore=venv,.venv,.git,__pycache__
+
+[MESSAGES CONTROL]
+# Silence noisy or stylistic checks that conflict with project conventions or other linters
+disable=
+    C0114,  # missing-module-docstring
+    C0115,  # missing-class-docstring
+    C0116,  # missing-function-docstring
+    C0301,  # line-too-long (ruff enforces formatting; limit set below if enabled)
+    C0302,  # too-many-lines (main.py is a central module by design)
+    C0415,  # import-outside-toplevel (used intentionally for optional deps/perf)
+    W0718,  # broad-exception-caught (allowed at job/task boundaries)
+    W0707,  # raise-missing-from (style; not required here)
+    W1203,  # logging-fstring-interpolation (we intentionally use f-strings)
+    W0621,  # redefined-outer-name (acceptable in some inner scopes)
+    W0622,  # redefined-builtin (rare, but we avoid churn; mypy catches most)
+    W0603,  # global-statement (used for simple module-level caches)
+    W0602,  # global-variable-not-assigned
+    C0325,  # superfluous-parens (style)
+    E1102,  # not-callable (false positives with sqlalchemy.func, libraries)
+    E1136,  # unsubscriptable-object (typing false positives in complex flows)
+    R0801,  # duplicate-code (not useful for small repetition)
+    R0902, R0903, R0912, R0913, R0914, R0915,  # OOP/complexity metrics
+    R1702   # too-many-nested-blocks
+
+[FORMAT]
+max-line-length=120
+
+[DESIGN]
+max-module-lines=2500
+
+[REPORTS]
+score=no
+
+[TYPECHECK]
+# Help reduce false positives in dynamic libs
+ignored-modules=tidalapi
+generated-members=sqlalchemy.*
+
+[SIMILARITIES]
+min-similarity-lines=8
