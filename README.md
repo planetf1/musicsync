@@ -2,6 +2,10 @@
 
 Sync your Spotify library to TIDAL with a friendly web UI, idempotent operations, and clear progress. Focus areas: followed artists, liked tracks, and user-owned playlists.
 
+Looking for a quick visual tour? See the Screenshots & Feature Guide:
+
+- docs/SCREENSHOTS.md
+
 ## Features
 
 - Connect accounts

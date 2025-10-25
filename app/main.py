@@ -17,7 +17,7 @@ from fastapi.templating import Jinja2Templates
 from tidalapi import artist as tidal_artist
 
 from .matching import ArtistCandidate, score_artist_match
-from .spotify_client import exchange_code_for_token, get_authorize_url, get_spotify_client
+from .spotify_client import call_spotify, exchange_code_for_token, get_authorize_url, get_spotify_client
 from .storage import (
     DB_PATH,
     ArtistMap,
@@ -199,11 +199,10 @@ async def tidal_status():
 
 
 async def fetch_spotify_followed_artists() -> list[dict[str, str]]:
-    sp = get_spotify_client()
     artists: list[dict[str, str]] = []
     after: str | None = None
     while True:
-        page = sp.current_user_followed_artists(limit=50, after=after) or {}
+        page = call_spotify(lambda sp: sp.current_user_followed_artists(limit=50, after=after)) or {}
         artists_block = page.get("artists") or {}
         items = artists_block.get("items") or []
         for a in items:
@@ -451,7 +450,7 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
     try:
         # Check auth
         try:
-            sp = get_spotify_client()
+            get_spotify_client()
         except Exception as e:
             _job_set(job_id, state="error", error=str(e))
             _log.exception(f"[job {job_id}] Spotify not authorized")
@@ -474,7 +473,7 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
         artists: list[dict[str, str]] = []
         after: str | None = None
         while True:
-            page = sp.current_user_followed_artists(limit=50, after=after) or {}
+            page = call_spotify(lambda sp, after=after: sp.current_user_followed_artists(limit=50, after=after)) or {}
             artists_block = page.get("artists") or {}
             items = artists_block.get("items") or []
             for a in items:
@@ -500,7 +499,7 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
             while i < len(ids):
                 chunk = ids[i : i + 50]
                 try:
-                    res = sp.artists(chunk) or {}
+                    res = call_spotify(lambda sp, chunk=chunk: sp.artists(chunk)) or {}
                     arts = res.get("artists") or []
                     for ar in arts:
                         gid = ar.get("id")
@@ -724,7 +723,7 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
     _job_set(job_id, state="running", started_at=datetime.now(UTC).isoformat())
     try:
         try:
-            sp = get_spotify_client()
+            get_spotify_client()
         except Exception as e:
             _job_set(job_id, state="error", error=str(e))
             return
@@ -739,7 +738,14 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
         offset = 0
         page_size = 50
         while True:
-            page = sp.current_user_saved_tracks(limit=page_size, offset=offset) or {}
+            page = (
+                call_spotify(
+                    lambda sp, offset=offset, page_size=page_size: sp.current_user_saved_tracks(
+                        limit=page_size, offset=offset
+                    )
+                )
+                or {}
+            )
             items = page.get("items") or []
             for it in items:
                 t = it.get("track") or {}
@@ -906,8 +912,8 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
     _job_set(job_id, state="running", started_at=datetime.now(UTC).isoformat())
     try:
         try:
-            sp = get_spotify_client()
-            me = sp.me() or {}
+            get_spotify_client()
+            me = call_spotify(lambda sp: sp.me()) or {}
             my_spotify_user_id = (me.get("id") or "").strip()
         except Exception as e:
             _job_set(job_id, state="error", error=str(e))
@@ -923,7 +929,14 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
         offset = 0
         page_size = 50
         while True:
-            page = sp.current_user_playlists(limit=page_size, offset=offset) or {}
+            page = (
+                call_spotify(
+                    lambda sp, offset=offset, page_size=page_size: sp.current_user_playlists(
+                        limit=page_size, offset=offset
+                    )
+                )
+                or {}
+            )
             items = page.get("items") or []
             for pl in items:
                 owner = pl.get("owner") or {}
@@ -994,7 +1007,14 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
                 sp_tracks_meta: dict[str, dict[str, Any]] = {}
                 off2 = 0
                 while True:
-                    page = sp.playlist_tracks(sp_pl_id, limit=100, offset=off2) or {}
+                    page = (
+                        call_spotify(
+                            lambda sp, sp_pl_id=sp_pl_id, off2=off2: sp.playlist_tracks(
+                                sp_pl_id, limit=100, offset=off2
+                            )
+                        )
+                        or {}
+                    )
                     items = page.get("items") or []
                     for it in items:
                         t = it.get("track") or {}
@@ -1500,7 +1520,7 @@ def _run_refresh_genres_job(job_id: str, missing_only: bool = True) -> None:
     _job_set(job_id, state="running", started_at=datetime.now(UTC).isoformat())
     try:
         try:
-            sp = get_spotify_client()
+            get_spotify_client()
         except Exception as e:
             _job_set(job_id, state="error", error=str(e))
             return
@@ -1535,7 +1555,7 @@ def _run_refresh_genres_job(job_id: str, missing_only: bool = True) -> None:
             while i < len(target_ids):
                 chunk = target_ids[i : i + 50]
                 try:
-                    res = sp.artists(chunk) or {}
+                    res = call_spotify(lambda sp: sp.artists(chunk)) or {}
                     arts = res.get("artists") or []
                 except Exception:
                     arts = []

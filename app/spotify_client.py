@@ -5,6 +5,7 @@ import time
 
 import spotipy
 from dotenv import load_dotenv
+from spotipy.exceptions import SpotifyException
 from spotipy.oauth2 import SpotifyOAuth
 
 from .storage import SessionLocal, load_token, save_token
@@ -57,3 +58,24 @@ def get_spotify_client() -> spotipy.Spotify:
         raise RuntimeError("Spotify not authorized. Visit /auth/spotify/login")
     token_info = _refresh_if_needed(token_info)
     return spotipy.Spotify(auth=token_info["access_token"])
+
+
+def call_spotify(fn, retry_on_401: bool = True):
+    """Call a Spotipy function with automatic token refresh on 401.
+
+    Usage:
+        result = call_spotify(lambda sp: sp.current_user_playlists(limit=50, offset=0))
+
+    This wrapper obtains a fresh client, executes the provided function, and if a
+    SpotifyException with HTTP 401 is raised (token expired), it refreshes the
+    token by re-creating the client and retries once.
+    """
+    sp = get_spotify_client()
+    try:
+        return fn(sp)
+    except SpotifyException as e:
+        if retry_on_401 and getattr(e, "http_status", None) == 401:
+            # Token likely expired mid-run. Refresh and retry once.
+            sp = get_spotify_client()
+            return fn(sp)
+        raise
