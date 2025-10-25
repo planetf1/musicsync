@@ -163,6 +163,7 @@
   <hr />
   <div class="actions">
     <button id="btn-sync-playlists" class="btn" onclick="startPlaylistSync()" {% if not (spotify_ok and tidal_ok) %}disabled{% endif %}>Sync Playlists (Spotify → TIDAL)</button>
+    <a class="btn secondary" href="/library/playlists" style="margin-left:8px;">View Playlists</a>
     <div id="playlist-sync-progress" style="margin-top:8px"></div>
     <script>
       let playlistSyncTimer;
