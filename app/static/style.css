@@ -1,11 +1,45 @@
-body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:0;background:#111;color:#eee}
-header{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;background:#1e1e1e;border-bottom:1px solid #333}
-nav a{color:#9cf;margin-right:12px;text-decoration:none}
+/* Theme variables */
+:root{
+	--bg: #111;
+	--text: #eee;
+	--card: #1e1e1e;
+	--border: #333;
+	--link: #9cf;
+	--btn: #2d6cdf;
+	--btn-text: #fff;
+	--muted: #aaa;
+}
+
+@media (prefers-color-scheme: light){
+	:root{
+		--bg: #f8f9fb;
+		--text: #1b1f23;
+		--card: #ffffff;
+		--border: #d0d7de;
+		--link: #0969da;
+		--btn: #1f6feb;
+		--btn-text: #fff;
+		--muted: #57606a;
+	}
+}
+
+body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:0;padding:0;background:var(--bg);color:var(--text)}
+header{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center;padding:12px 16px;background:var(--card);border-bottom:1px solid var(--border)}
+nav a{color:var(--link);margin-right:12px;text-decoration:none}
 main{padding:16px}
-.btn{display:inline-block;padding:8px 12px;background:#2d6cdf;color:#fff;border-radius:6px;text-decoration:none;border:none;cursor:pointer}
+.btn{display:inline-block;padding:8px 12px;background:var(--btn);color:var(--btn-text);border-radius:6px;text-decoration:none;border:none;cursor:pointer}
+.btn.secondary{background:transparent;border:1px solid var(--border);color:var(--text)}
 .btn:disabled{opacity:.5;cursor:not-allowed}
-.pending-item{border:1px solid #333;padding:12px;margin:12px 0;border-radius:8px}
+.pending-item{border:1px solid var(--border);padding:12px;margin:12px 0;border-radius:8px;background:var(--card)}
 label{display:block;margin-bottom:4px}
-select{padding:6px;border-radius:4px}
-.status-connected{color:#4caf50}
-.status-disconnected{color:#e53935}
+select,input[type="text"],input[type="number"],input[type="search"]{padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--text)}
+.status-connected{color:#2e7d32}
+.status-disconnected{color:#c62828}
+
+/* Tables */
+.table{width:100%;border-collapse:collapse}
+.table th,.table td{padding:8px;border-bottom:1px solid var(--border);text-align:left}
+.table thead th{position:sticky;top:0;background:var(--card)}
+
+/* Cards */
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px}

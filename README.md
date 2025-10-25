@@ -23,22 +23,27 @@ Sync your Spotify library to TIDAL with a friendly web UI, idempotent operations
 - Library browsing
   - Artists, Tracks, Playlists pages with search, sorting, pagination, and page-size presets (including “all”)
   - Direct links out to Spotify/TIDAL entities
-- Backups
-  - JSON exports for Artists, Tracks, Playlists
+- Backups & Exports
+  - Download database: `/backup/db`
+  - Multi-format exports for artists, tracks, playlists: `/export/{kind}?format=json|csv|md&download=1`
+  - JSON exports for Artists, Tracks, Playlists (legacy): `/backup/*`
 
 ## Prerequisites
 
 - Python 3.10+
 - A Spotify Developer App with a Redirect URI set to `http://localhost:8000/auth/spotify/callback`
 
-Create a `.env` in the project root:
+Create a `.env` in the project root (see `.env.example` for a template):
 
 ```bash
 SPOTIFY_CLIENT_ID=<your id>
 SPOTIFY_CLIENT_SECRET=<your secret>
 SPOTIFY_REDIRECT_URI=http://localhost:8000/auth/spotify/callback
-APP_HOST=127.0.0.1
-APP_PORT=8000
+
+# Optional: used by the musicsync CLI entrypoint
+MUSICSYNC_HOST=127.0.0.1
+MUSICSYNC_PORT=8000
+MUSICSYNC_RELOAD=1
 ```
 
 ## Install
@@ -49,8 +54,7 @@ Option A — with uv (recommended)
 # 1) Install uv (macOS)
 brew install astral-sh/uv/uv || curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 2) Run directly with uv (no venv needed)
-# Note: you must invoke uvicorn as the command
+# 2) Run directly with uv (no venv needed). Note: invoke 'uvicorn' as the command.
 uv run --with uvicorn uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
 # (Alternative)
@@ -67,7 +71,8 @@ Option B — classic venv
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+# For low-memory environments (avoid reload watchers)
+uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 Then open:
@@ -79,19 +84,27 @@ Then open:
 
 ## Using the app
 
-1) Connect accounts
-   - Click “Connect Spotify” and complete the OAuth flow.
-   - Click “Connect TIDAL” → follow the device login link and confirm.
+### Connect accounts
 
-2) Sync
-   - “Sync Followed Artists” adds matches to TIDAL favorites.
-   - “Sync Liked Tracks” adds songs to TIDAL favorites using ISRC-first mapping.
-   - “Sync Playlists” creates/updates your user-owned Spotify playlists on TIDAL and records the ordered track list locally.
+- Click “Connect Spotify” and complete the OAuth flow.
+- Click “Connect TIDAL” → follow the device login link and confirm.
 
-3) Review & browse
-   - Pending matches: resolve from the Pending pages.
-   - Library pages: browse synced Artists/Tracks/Playlists with search/sort/pagination.
-   - Playlist details: click a playlist name in the Playlists library to view the locally stored track list (includes Spotify links and TIDAL links where mapped).
+### Sync
+
+- “Sync Followed Artists” adds matches to TIDAL favorites.
+- “Sync Liked Tracks” adds songs to TIDAL favorites using ISRC-first mapping.
+- “Sync Playlists” creates/updates your user-owned Spotify playlists on TIDAL and records the ordered track list locally.
+
+### Review & browse
+
+- Pending matches: resolve from the Pending pages.
+- Library pages: browse synced Artists/Tracks/Playlists with search, sort (including Genres), pagination, and page-size presets.
+- Playlist details: click a playlist name in the Playlists library to view the locally stored track list (includes Spotify links and TIDAL links where mapped).
+
+### Genres (optional)
+
+- The Artists page shows a Top Genres widget and supports filtering and sorting by genres.
+- Use the “Refresh Genres” button to fetch or update genres for your artists from Spotify. Enable “Missing only” for a quick top-up.
 
 ## Notes on TIDAL login
 
@@ -111,9 +124,9 @@ We use the `tidalapi` device login flow. When you press “Connect TIDAL,” the
 
 ## Backup endpoints
 
-- Artists: `/backup/artists`
-- Tracks: `/backup/tracks`
-- Playlists: `/backup/playlists`
+- Download SQLite DB: `/backup/db`
+- JSON (legacy): `/backup/artists`, `/backup/tracks`, `/backup/playlists`
+- Multi-format exports: `/export/{artists|tracks|playlists}?format=json|csv|md&download=1`
 
 ## Contributing & design
 
@@ -126,9 +139,52 @@ We use the `tidalapi` device login flow. When you press “Connect TIDAL,” the
 - Spotify auth errors: ensure Redirect URI matches exactly.
 - Missing rapidfuzz: `pip install -r requirements.txt` (it’s included).
 - Unicode/diacritics oddities in matches: normalization strips accents and punctuation; use manual resolve when in doubt.
+- Server doesn’t start (curl returns 000/7): ensure uvicorn is running and no firewall is blocking 127.0.0.1:8000.
+- Process killed (exit 137) on start: try running without `--reload` to reduce memory use. Example:
+
+   ```bash
+   uvicorn app.main:app --host 127.0.0.1 --port 8000
+   ```
+
+   If using uv, this variant also avoids reload overhead:
+
+   ```bash
+   uv run --with uvicorn uvicorn app.main:app --host 127.0.0.1 --port 8000
+   ```
+
+   You can also reduce logging load with `--no-access-log`.
+
+   ```bash
+   uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log
+   ```
 
 ## License
 
 MIT
+
+---
+
+## Developer Setup (optional)
+
+Install dev tools and pre-commit hooks:
+
+```bash
+# Using uv
+uv pip install -e .[dev]
+pre-commit install
+
+# Or with a venv
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .[dev]
+pre-commit install
+```
+
+Run linters/type checks locally:
+
+```bash
+ruff check --fix . && ruff format .
+mypy .
+```
 
 
