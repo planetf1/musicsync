@@ -30,20 +30,20 @@
           {% set next_order = 'asc' if order=='desc' else 'desc' %}
           {% set page_size_param = 'all' if page_size == 0 else page_size %}
           <th><a href="/library/playlists?sort=last_synced_at&order={{ next_order if sort=='last_synced_at' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}">Last Synced{% if sort=='last_synced_at' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
-          <th><a href="/library/playlists?sort=spotify_name&order={{ next_order if sort=='spotify_name' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Playlist{% if sort=='spotify_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
-          <th><a href="/library/playlists?sort=tidal_name&order={{ next_order if sort=='tidal_name' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Playlist{% if sort=='tidal_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/playlists?sort=spotify_name&order={{ next_order if sort=='spotify_name' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Playlist{% if sort=='spotify_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th>Spotify</th>
+          <th><a href="/library/playlists?sort=tidal_name&order={{ next_order if sort=='tidal_name' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL{% if sort=='tidal_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
         </tr>
       </thead>
       <tbody>
         {% for it in items %}
           <tr>
             <td>{{ it.last_synced_at or '' }}</td>
-            <td>
-              <a href="https://open.spotify.com/playlist/{{ it.spotify_id }}" target="_blank" rel="noopener">{{ it.spotify_name }}</a>
-            </td>
+            <td><a href="/library/playlists/{{ it.spotify_id }}">{{ it.spotify_name }}</a></td>
+            <td><a href="https://open.spotify.com/playlist/{{ it.spotify_id }}" target="_blank" rel="noopener">open</a></td>
             <td>
               {% if it.tidal_id %}
-                <a href="https://tidal.com/browse/playlist/{{ it.tidal_id }}" target="_blank" rel="noopener">{{ it.tidal_name }}</a>
+                <a href="https://tidal.com/browse/playlist/{{ it.tidal_id }}" target="_blank" rel="noopener">open</a>
               {% else %}
                 —
               {% endif %}

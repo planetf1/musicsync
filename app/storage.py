@@ -125,6 +125,21 @@ class PlaylistMap(Base):
     last_synced_at = Column(DateTime, nullable=True)
 
 
+class PlaylistTrack(Base):
+    __tablename__ = "playlist_track"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    playlist_spotify_id = Column(String(64), nullable=False, index=True)
+    position = Column(Integer, nullable=False)  # 1-based order from Spotify
+    spotify_track_id = Column(String(64), nullable=False)
+    spotify_title = Column(String(512), nullable=False)
+    spotify_artist = Column(String(512), nullable=False)
+    tidal_track_id = Column(String(64), nullable=True)
+    tidal_title = Column(String(512), nullable=True)
+    tidal_artist = Column(String(512), nullable=True)
+    isrc = Column(String(32), nullable=True)
+    last_synced_at = Column(DateTime, default=datetime.utcnow)
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     # Lightweight migrations for SQLite: add missing columns to track_map
@@ -416,6 +431,102 @@ def get_playlist_map(db: OrmSession, spotify_id: str) -> Optional[Dict[str, Any]
         "tidal_name": m.tidal_name,
         "last_synced_at": m.last_synced_at.isoformat() if m.last_synced_at else None,
     }
+
+
+def replace_playlist_tracks(db: OrmSession, playlist_spotify_id: str, entries: List[Dict[str, Any]]) -> None:
+    """Replace the stored track snapshot for a playlist with the given ordered entries.
+
+    Each entry should include: position (int, 1-based), spotify_track_id, spotify_title, spotify_artist,
+    and optional tidal_track_id, tidal_title, tidal_artist, isrc.
+    """
+    from sqlalchemy import delete
+    db.execute(delete(PlaylistTrack).where(PlaylistTrack.playlist_spotify_id == playlist_spotify_id))
+    now = datetime.utcnow()
+    for e in entries:
+        db.add(
+            PlaylistTrack(
+                playlist_spotify_id=playlist_spotify_id,
+                position=int(e.get("position", 0) or 0),
+                spotify_track_id=str(e.get("spotify_track_id")),
+                spotify_title=str(e.get("spotify_title") or ""),
+                spotify_artist=str(e.get("spotify_artist") or ""),
+                tidal_track_id=(str(e.get("tidal_track_id")) if e.get("tidal_track_id") else None),
+                tidal_title=(str(e.get("tidal_title")) if e.get("tidal_title") else None),
+                tidal_artist=(str(e.get("tidal_artist")) if e.get("tidal_artist") else None),
+                isrc=(str(e.get("isrc")) if e.get("isrc") else None),
+                last_synced_at=now,
+            )
+        )
+    db.commit()
+
+
+def list_playlist_tracks(
+    db: OrmSession,
+    playlist_spotify_id: str,
+    *,
+    search: Optional[str] = None,
+    sort: str = "position",
+    order: str = "asc",
+    page: int = 1,
+    page_size: int = 50,
+) -> Tuple[List[Dict[str, Any]], int]:
+    from sqlalchemy import func, or_
+
+    q = db.query(PlaylistTrack).filter(PlaylistTrack.playlist_spotify_id == playlist_spotify_id)
+    if search:
+        s = f"%{search.lower()}%"
+        q = q.filter(
+            or_(
+                func.lower(PlaylistTrack.spotify_title).like(s),
+                func.lower(PlaylistTrack.spotify_artist).like(s),
+                func.lower(PlaylistTrack.tidal_title).like(s),
+                func.lower(PlaylistTrack.tidal_artist).like(s),
+                func.lower(PlaylistTrack.spotify_track_id).like(s),
+                func.lower(PlaylistTrack.tidal_track_id).like(s),
+            )
+        )
+
+    total = q.count()
+
+    sort_map = {
+        "position": PlaylistTrack.position,
+        "spotify_title": PlaylistTrack.spotify_title,
+        "spotify_artist": PlaylistTrack.spotify_artist,
+        "tidal_title": PlaylistTrack.tidal_title,
+        "tidal_artist": PlaylistTrack.tidal_artist,
+        "last_synced_at": PlaylistTrack.last_synced_at,
+    }
+    col = sort_map.get(sort, PlaylistTrack.position)
+    if order.lower() == "asc":
+        q = q.order_by(col.asc().nullslast())
+    else:
+        q = q.order_by(col.desc().nullslast())
+
+    if page_size != 0:
+        if page < 1:
+            page = 1
+        if page_size < 1:
+            page_size = 25
+        offset = (page - 1) * page_size
+        q = q.offset(offset).limit(page_size)
+
+    rows = q.all()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "position": int(r.position),
+                "spotify_track_id": r.spotify_track_id,
+                "spotify_title": r.spotify_title,
+                "spotify_artist": r.spotify_artist,
+                "tidal_track_id": r.tidal_track_id,  # type: ignore[attr-defined]
+                "tidal_title": r.tidal_title,  # type: ignore[attr-defined]
+                "tidal_artist": r.tidal_artist,  # type: ignore[attr-defined]
+                "isrc": r.isrc,  # type: ignore[attr-defined]
+                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
+            }
+        )
+    return out, total
 
 
 # Export helpers (for backup)

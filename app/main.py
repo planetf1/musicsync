@@ -40,6 +40,8 @@ from .storage import (
     TrackMap,
     upsert_playlist_map,
     get_playlist_map,
+    replace_playlist_tracks,
+    list_playlist_tracks,
 )
 from .spotify_client import get_authorize_url, exchange_code_for_token, get_spotify_client
 from .tidal_client import (
@@ -902,11 +904,17 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
 
                 # Map to TIDAL track IDs, using existing TrackMap or fallback matching
                 tidal_to_add_ordered: List[str] = []
+                sid_to_meta: Dict[str, Dict[str, Any]] = {}
                 with SessionLocal() as db:
                     for sid in sp_track_ids:
                         tm = db.get(TrackMap, sid)
                         if tm and tm.tidal_id:
                             tidal_to_add_ordered.append(str(tm.tidal_id))
+                            sid_to_meta[sid] = {
+                                "tidal_id": str(tm.tidal_id),
+                                "tidal_title": tm.tidal_title,
+                                "tidal_artist": tm.tidal_artist,
+                            }
                             continue
                         meta = sp_tracks_meta.get(sid) or {}
                         cands = _tidal_search_tracks(sess, meta.get("title") or "", meta.get("artist") or "")
@@ -951,6 +959,11 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
                                 True,
                             )
                             tidal_to_add_ordered.append(tid)
+                            sid_to_meta[sid] = {
+                                "tidal_id": tid,
+                                "tidal_title": top.get("title"),
+                                "tidal_artist": t_artist_name,
+                            }
                         else:
                             # leave unmapped; could add pending resolution
                             add_pending_track_resolution(db, sid, meta.get("title") or "", meta.get("artist") or "", meta.get("isrc"), ranked[:10])
@@ -979,6 +992,24 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
                 # Update mapping record
                 with SessionLocal() as db:
                     upsert_playlist_map(db, sp_pl_id, sp_pl_name, tidal_pl_id, getattr(tidal_playlist_obj, "name", None))
+                    # Replace playlist tracks snapshot with current Spotify order
+                    entries: List[Dict[str, Any]] = []
+                    for idx, sid in enumerate(sp_track_ids, start=1):
+                        meta = sp_tracks_meta.get(sid) or {}
+                        tmeta = sid_to_meta.get(sid) or {}
+                        entries.append(
+                            {
+                                "position": idx,
+                                "spotify_track_id": sid,
+                                "spotify_title": meta.get("title") or "",
+                                "spotify_artist": meta.get("artist") or "",
+                                "isrc": meta.get("isrc"),
+                                "tidal_track_id": tmeta.get("tidal_id"),
+                                "tidal_title": tmeta.get("tidal_title"),
+                                "tidal_artist": tmeta.get("tidal_artist"),
+                            }
+                        )
+                    replace_playlist_tracks(db, sp_pl_id, entries)
 
             except Exception:
                 pass
@@ -1252,6 +1283,62 @@ async def library_playlists(request: Request):
         "library_playlists.html",
         {
             "request": request,
+            "items": items,
+            "count": len(items),
+            "total": total,
+            "page": page,
+            "pages": pages,
+            "page_size": page_size,
+            "sort": sort,
+            "order": order,
+            "q": q or "",
+        },
+    )
+
+
+@app.get("/library/playlists/{spotify_id}", response_class=HTMLResponse)
+async def library_playlist_detail(spotify_id: str, request: Request):
+    q = request.query_params.get("q") or None
+    sort = request.query_params.get("sort") or "position"
+    order = request.query_params.get("order") or "asc"
+    try:
+        page = int(request.query_params.get("page") or 1)
+    except ValueError:
+        page = 1
+    ps_raw = request.query_params.get("page_size")
+    if ps_raw is None:
+        page_size = 25
+    elif ps_raw == "all":
+        page_size = 0
+    else:
+        try:
+            page_size = int(ps_raw)
+        except ValueError:
+            page_size = 25
+
+    with SessionLocal() as db:
+        pl = get_playlist_map(db, spotify_id)
+        if not pl:
+            raise HTTPException(status_code=404, detail="Playlist not found")
+        items, total = list_playlist_tracks(
+            db,
+            spotify_id,
+            search=q,
+            sort=sort,
+            order=order,
+            page=page,
+            page_size=page_size,
+        )
+    pages = (total + page_size - 1) // page_size if page_size else 1
+    if page < 1:
+        page = 1
+    if pages and page > pages:
+        page = pages
+    return templates.TemplateResponse(
+        "library_playlist_detail.html",
+        {
+            "request": request,
+            "playlist": pl,
             "items": items,
             "count": len(items),
             "total": total,

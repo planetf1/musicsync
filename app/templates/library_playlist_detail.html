@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  <h2>Playlist — {{ playlist.spotify_name }}</h2>
+  <div style="margin-bottom:8px;">
+    <span>Spotify: <a href="https://open.spotify.com/playlist/{{ playlist.spotify_id }}" target="_blank" rel="noopener">open</a></span>
+    {% if playlist.tidal_id %}
+      <span style="margin-left:12px;">TIDAL: <a href="https://tidal.com/browse/playlist/{{ playlist.tidal_id }}" target="_blank" rel="noopener">open</a></span>
+    {% endif %}
+  </div>
+  <form method="get" action="/library/playlists/{{ playlist.spotify_id }}" style="margin-bottom:10px; display:flex; gap:8px; align-items:center; flex-wrap: wrap;">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search tracks…" />
+    <input type="hidden" name="sort" value="{{ sort }}" />
+    <input type="hidden" name="order" value="{{ order }}" />
+    {% set sizes = [10,25,100,250,1000,2500] %}
+    <label for="psize" style="margin-left:8px;">Page size:</label>
+    <select id="psize" name="page_size">
+      {% for s in sizes %}
+        <option value="{{ s }}" {% if page_size == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+      <option value="all" {% if page_size == 0 %}selected{% endif %}>all</option>
+    </select>
+    <button class="btn" type="submit">Apply</button>
+    <a class="btn" href="/library/playlists">Back to playlists</a>
+  </form>
+  <p>Showing {{ count }} of {{ total }} tracks.</p>
+  {% if not items %}
+    <p>No tracks have been recorded for this playlist yet. Run a playlist sync and check back.</p>
+  {% else %}
+  <div style="overflow-x:auto">
+    <table class="table">
+      <thead>
+        <tr>
+          {% set next_order = 'asc' if order=='desc' else 'desc' %}
+          {% set page_size_param = 'all' if page_size == 0 else page_size %}
+          <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=position&order={{ next_order if sort=='position' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}"># {% if sort=='position' %}{% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=spotify_title&order={{ next_order if sort=='spotify_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Title{% if sort=='spotify_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=spotify_artist&order={{ next_order if sort=='spotify_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Artist{% if sort=='spotify_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=tidal_title&order={{ next_order if sort=='tidal_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Title{% if sort=='tidal_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=tidal_artist&order={{ next_order if sort=='tidal_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Artist{% if sort=='tidal_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+          <tr>
+            <td>{{ it.position }}</td>
+            <td>
+              <a href="https://open.spotify.com/track/{{ it.spotify_track_id }}" target="_blank" rel="noopener">{{ it.spotify_title }}</a>
+            </td>
+            <td>{{ it.spotify_artist }}</td>
+            <td>
+              {% if it.tidal_track_id %}
+                <a href="https://tidal.com/browse/track/{{ it.tidal_track_id }}" target="_blank" rel="noopener">{{ it.tidal_title or '—' }}</a>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td>{{ it.tidal_artist or '—' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="pagination" style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap: wrap;">
+    {% set prev_page = page - 1 %}
+    {% set next_page = page + 1 %}
+    {% set page_size_param = 'all' if page_size == 0 else page_size %}
+    <span>Page {{ page }} of {{ pages }}</span>
+    <a class="btn" href="/library/playlists/{{ playlist.spotify_id }}?page={{ prev_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}" {% if page <= 1 %}style="pointer-events:none; opacity:0.5"{% endif %}>Prev</a>
+    {% set window = 2 %}
+    {% set start = 1 if pages <= 10 else [1, page - window] | max %}
+    {% set end = pages if pages <= 10 else [pages, page + window] | min %}
+    {% if start > 1 %}
+      <a class="btn" href="/library/playlists/{{ playlist.spotify_id }}?page=1&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">1</a>
+      {% if start > 2 %}<span>…</span>{% endif %}
+    {% endif %}
+    {% for pnum in range(start, end + 1) %}
+      <a class="btn{% if pnum == page %} secondary{% endif %}" href="/library/playlists/{{ playlist.spotify_id }}?page={{ pnum }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">{{ pnum }}</a>
+    {% endfor %}
+    {% if end < pages %}
+      {% if end < pages - 1 %}<span>…</span>{% endif %}
+      <a class="btn" href="/library/playlists/{{ playlist.spotify_id }}?page={{ pages }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">{{ pages }}</a>
+    {% endif %}
+    <a class="btn" href="/library/playlists/{{ playlist.spotify_id }}?page={{ next_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}" {% if page >= pages %}style="pointer-events:none; opacity:0.5"{% endif %}>Next</a>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
