@@ -963,14 +963,15 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
                         tidal_playlist_obj = TidalPlaylist(sess, tidal_pl_id).factory()
                     except Exception:
                         tidal_playlist_obj = None
+                # Track whether this playlist already existed on TIDAL and whether we actually modify it
+                preexisting = tidal_playlist_obj is not None
+                did_modify = False
                 if tidal_playlist_obj is None:
                     # Create new TIDAL playlist
                     t_pl = sess.user.create_playlist(sp_pl_name, f"Synced from Spotify: {sp_pl_id}")
                     tidal_pl_id = str(t_pl.id)
                     tidal_playlist_obj = t_pl
                     created += 1
-                else:
-                    updated += 1
 
                 # Build set of existing TIDAL track IDs in the playlist
                 existing_ids: set[str] = set()
@@ -1102,6 +1103,8 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
 
                 # Add any missing to the playlist, skipping duplicates
                 to_add_final: list[str] = [tid for tid in tidal_to_add_ordered if tid not in existing_ids]
+                if to_add_final:
+                    did_modify = True
                 # Chunk adds for API limits
                 add_method = getattr(tidal_playlist_obj, "add", None)
                 if to_add_final and callable(add_method):
@@ -1125,6 +1128,10 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
                                 except Exception:
                                     pass
                         i += len(chunk)
+
+                # Count as updated only if a pre-existing TIDAL playlist actually changed
+                if preexisting and did_modify:
+                    updated += 1
 
                 # Update mapping record
                 with SessionLocal() as db:
