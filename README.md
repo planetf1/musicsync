@@ -206,4 +206,9 @@ ruff check --fix . && ruff format .
 mypy .
 ```
 
+Run all hooks and secrets scan manually:
 
+```bash
+pre-commit run --all-files
+gitleaks detect --no-git --source . --no-banner
+```
