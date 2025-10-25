@@ -58,11 +58,38 @@ class RunLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+# --- Tracks ---
+
+class TrackMap(Base):
+    __tablename__ = "track_map"
+    spotify_id = Column(String(64), primary_key=True)
+    spotify_title = Column(String(512), nullable=False)
+    spotify_artist = Column(String(512), nullable=False)
+    tidal_id = Column(String(64), nullable=True)
+    tidal_title = Column(String(512), nullable=True)
+    tidal_artist = Column(String(512), nullable=True)
+    isrc = Column(String(32), nullable=True)
+    confidence = Column(Float, default=0.0)
+    resolved = Column(Boolean, default=False)
+    last_synced_at = Column(DateTime, nullable=True)
+
+
+class PendingTrackResolution(Base):
+    __tablename__ = "pending_track_resolution"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    spotify_id = Column(String(64), nullable=False)
+    spotify_title = Column(String(512), nullable=False)
+    spotify_artist = Column(String(512), nullable=False)
+    isrc = Column(String(32), nullable=True)
+    candidates_json = Column(Text, nullable=False)  # JSON list of {id,title,artist,isrc,duration,score}
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
 
 
-def get_db() -> OrmSession:
+def get_db():
     db = SessionLocal()
     try:
         yield db
@@ -76,8 +103,8 @@ def save_token(db: OrmSession, service: str, data: Dict[str, Any]) -> None:
     payload = json.dumps(data)
     existing = db.get(Token, service)
     if existing:
-        existing.data = payload
-        existing.updated_at = datetime.utcnow()
+        existing.data = payload  # type: ignore[assignment]
+        existing.updated_at = datetime.utcnow()  # type: ignore[assignment]
     else:
         db.add(Token(service=service, data=payload))
     db.commit()
@@ -88,7 +115,7 @@ def load_token(db: OrmSession, service: str) -> Optional[Dict[str, Any]]:
     if not tok:
         return None
     try:
-        return json.loads(tok.data)
+        return json.loads(str(tok.data))
     except json.JSONDecodeError:
         return None
 
@@ -106,11 +133,11 @@ def upsert_artist_map(
     if not m:
         m = ArtistMap(spotify_id=spotify_id, spotify_name=spotify_name)
         db.add(m)
-    m.tidal_id = tidal_id
-    m.tidal_name = tidal_name
-    m.confidence = confidence
-    m.resolved = resolved
-    m.last_synced_at = datetime.utcnow() if tidal_id else None
+    m.tidal_id = tidal_id  # type: ignore[assignment]
+    m.tidal_name = tidal_name  # type: ignore[assignment]
+    m.confidence = confidence  # type: ignore[assignment]
+    m.resolved = resolved  # type: ignore[assignment]
+    m.last_synced_at = datetime.utcnow() if tidal_id else None  # type: ignore[assignment]
     db.commit()
 
 
@@ -136,7 +163,7 @@ def get_pending(db: OrmSession) -> List[Dict[str, Any]]:
                 "id": r.id,
                 "spotify_id": r.spotify_id,
                 "spotify_name": r.spotify_name,
-                "candidates": json.loads(r.candidates_json),
+                "candidates": json.loads(str(r.candidates_json)),
                 "created_at": r.created_at.isoformat(),
             }
         )
@@ -168,3 +195,82 @@ def cleanup_pending_for_resolved(db: OrmSession) -> int:
 def log(db: OrmSession, phase: str, message: str) -> None:
     db.add(RunLog(phase=phase, message=message))
     db.commit()
+
+
+# Track helpers
+
+def upsert_track_map(
+    db: OrmSession,
+    spotify_id: str,
+    spotify_title: str,
+    spotify_artist: str,
+    tidal_id: Optional[str],
+    tidal_title: Optional[str],
+    tidal_artist: Optional[str],
+    isrc: Optional[str],
+    confidence: float,
+    resolved: bool,
+) -> None:
+    m = db.get(TrackMap, spotify_id)
+    if not m:
+        m = TrackMap(spotify_id=spotify_id, spotify_title=spotify_title, spotify_artist=spotify_artist)
+        db.add(m)
+    m.tidal_id = tidal_id  # type: ignore[assignment]
+    m.tidal_title = tidal_title  # type: ignore[assignment]
+    m.tidal_artist = tidal_artist  # type: ignore[assignment]
+    m.isrc = isrc  # type: ignore[assignment]
+    m.confidence = confidence  # type: ignore[assignment]
+    m.resolved = resolved  # type: ignore[assignment]
+    m.last_synced_at = datetime.utcnow() if tidal_id else None  # type: ignore[assignment]
+    db.commit()
+
+
+def add_pending_track_resolution(
+    db: OrmSession, spotify_id: str, title: str, artist: str, isrc: Optional[str], candidates: List[Dict[str, Any]]
+) -> None:
+    db.query(PendingTrackResolution).filter(PendingTrackResolution.spotify_id == spotify_id).delete()
+    db.add(
+        PendingTrackResolution(
+            spotify_id=spotify_id,
+            spotify_title=title,
+            spotify_artist=artist,
+            isrc=isrc,
+            candidates_json=json.dumps(candidates),
+        )
+    )
+    db.commit()
+
+
+def get_pending_tracks(db: OrmSession) -> List[Dict[str, Any]]:
+    rows = db.query(PendingTrackResolution).order_by(PendingTrackResolution.created_at.asc()).all()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "id": r.id,
+                "spotify_id": r.spotify_id,
+                "spotify_title": r.spotify_title,
+                "spotify_artist": r.spotify_artist,
+                "isrc": r.isrc,
+                "candidates": json.loads(str(r.candidates_json)),
+                "created_at": r.created_at.isoformat(),
+            }
+        )
+    return out
+
+
+def delete_pending_track(db: OrmSession, pending_id: int) -> None:
+    db.query(PendingTrackResolution).filter(PendingTrackResolution.id == pending_id).delete()
+    db.commit()
+
+
+def delete_pending_track_by_spotify_id(db: OrmSession, spotify_id: str) -> None:
+    db.query(PendingTrackResolution).filter(PendingTrackResolution.spotify_id == spotify_id).delete()
+    db.commit()
+
+
+def cleanup_pending_tracks_for_resolved(db: OrmSession) -> int:
+    subq = db.query(TrackMap.spotify_id).filter(TrackMap.resolved == True)
+    deleted = db.query(PendingTrackResolution).filter(PendingTrackResolution.spotify_id.in_(subq)).delete(synchronize_session=False)
+    db.commit()
+    return int(deleted or 0)

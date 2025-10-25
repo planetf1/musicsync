@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Pending Track Matches</h2>
+{% if not items %}
+<p>No pending track matches. Great job!</p>
+{% else %}
+  {% for p in items %}
+    <div class="pending-item">
+      <h3>{{ p.spotify_title }} — <small>{{ p.spotify_artist }}</small></h3>
+      <form method="post" action="/resolve-track/{{ p.id }}">
+        {% if p.candidates and p.candidates|length > 0 %}
+          <label for="tsel-{{ p.id }}">Choose TIDAL match:</label>
+          <select id="tsel-{{ p.id }}" name="tidal_id" onchange="(function(sel,form){ const opt = sel.options[sel.selectedIndex]; const txt = opt.text; const dash = txt.indexOf(' — '); form.querySelector('[name=tidal_title]').value = dash>0?txt.substring(0,dash):txt; form.querySelector('[name=tidal_artist]').value = dash>0?txt.substring(dash+3):''; })(this,this.form)">
+            {% for c in p.candidates %}
+              <option value="{{ c.id }}">{{ c.title }} — {{ (c.artists and c.artists[0]) or c.artist or '' }}{% if c.duration %} ({{ c.duration }}s){% endif %} ({{ '%.0f'|format(c.score) }})</option>
+            {% endfor %}
+          </select>
+          <input type="hidden" name="tidal_title" value="{{ p.candidates[0].title }}" />
+          <input type="hidden" name="tidal_artist" value="{{ (p.candidates[0].artists and p.candidates[0].artists[0]) or p.candidates[0].artist or '' }}" />
+          <button type="submit" class="btn">Apply</button>
+        {% else %}
+          <p>No suggested TIDAL matches found.</p>
+          <p>
+            <a class="btn" href="https://listen.tidal.com/search?q={{ (p.spotify_title ~ ' ' ~ p.spotify_artist)|urlencode }}" target="_blank">Search on TIDAL</a>
+          </p>
+        {% endif %}
+      </form>
+    </div>
+  {% endfor %}
+{% endif %}
+{% endblock %}

@@ -129,6 +129,67 @@
   <div style="margin-top:6px">
     <label><input type="checkbox" id="chk-limit-25" /> Debug: limit to first 25 artists</label>
   </div>
+
+  <hr />
+  <div class="actions">
+    <button id="btn-sync-tracks" class="btn" onclick="startTrackSync()" {% if not (spotify_ok and tidal_ok) %}disabled{% endif %}>Sync Liked Tracks (Spotify → TIDAL)</button>
+    <div id="track-sync-progress" style="margin-top:8px"></div>
+    <script>
+      let trackSyncTimer;
+      async function startTrackSync(){
+        const btn = document.getElementById('btn-sync-tracks');
+        const div = document.getElementById('track-sync-progress');
+        btn.disabled = true;
+        div.textContent = 'Starting track sync…';
+        try{
+          const debugLimit = document.getElementById('chk-limit-tracks-25')?.checked ? 25 : 0;
+          const url = debugLimit ? ('/sync/tracks/start?limit=' + debugLimit) : '/sync/tracks/start';
+          const resp = await fetch(url, {method:'POST'});
+          if(!resp.ok){ div.textContent = 'Failed to start track sync.'; btn.disabled = false; return; }
+          const data = await resp.json();
+          pollTrackSync(data.job_id);
+        }catch(e){
+          div.textContent = 'Error starting track sync: ' + e;
+          btn.disabled = false;
+        }
+      }
+      async function pollTrackSync(jobId){
+        if(trackSyncTimer) clearInterval(trackSyncTimer);
+        const div = document.getElementById('track-sync-progress');
+        const render = async () => {
+          try{
+            const r = await fetch('/sync/tracks/status?job_id='+encodeURIComponent(jobId));
+            if(!r.ok){ div.textContent = 'Track sync status unavailable'; return; }
+            const s = await r.json();
+            if(s.state === 'error'){
+              div.innerHTML = `<span class="status-disconnected">Error: ${s.error||'unknown'}</span>`;
+              clearInterval(trackSyncTimer);
+              document.getElementById('btn-sync-tracks').disabled = false;
+              return;
+            }
+            const total = s.total ?? 0;
+            const processed = s.processed ?? 0;
+            const autoMatched = s.auto_matched ?? 0;
+            const pend = s.pending_count ?? 0;
+            if(s.state === 'done'){
+              div.innerHTML = `<span class="status-connected">Done.</span> Tracks: ${total}, auto-matched: ${autoMatched}, pending: ${pend}. <a href="/pending-tracks">Review pending tracks</a>`;
+              clearInterval(trackSyncTimer);
+              document.getElementById('btn-sync-tracks').disabled = false;
+              return;
+            }
+            div.textContent = `Syncing tracks… ${processed}/${total} (auto: ${autoMatched}, pending: ${pend})`;
+          }catch(e){
+            div.textContent = 'Error reading status: ' + e;
+          }
+        };
+        await render();
+        trackSyncTimer = setInterval(render, 2000);
+      }
+    </script>
+  </div>
+  <div style="margin-top:6px">
+    <label><input type="checkbox" id="chk-limit-tracks-25" /> Debug: limit to first 25 tracks</label>
+  </div>
   
 </section>
 {% endblock %}

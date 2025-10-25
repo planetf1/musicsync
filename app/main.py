@@ -23,6 +23,12 @@ from .storage import (
     upsert_artist_map,
     delete_pending_by_spotify_id,
     cleanup_pending_for_resolved,
+    upsert_track_map,
+    add_pending_track_resolution,
+    get_pending_tracks,
+    delete_pending_track,
+    delete_pending_track_by_spotify_id,
+    cleanup_pending_tracks_for_resolved,
 )
 from .spotify_client import get_authorize_url, exchange_code_for_token, get_spotify_client
 from .tidal_client import (
@@ -74,6 +80,21 @@ def _norm_artist_name(s: str) -> str:
     # Remove leading 'the '
     if s_ascii.startswith("the "):
         s_ascii = s_ascii[4:]
+    return s_ascii
+
+
+def _norm_track_title(s: str) -> str:
+    """Normalize track titles: strip diacritics, remove version/parentheticals, collapse spaces, lowercase."""
+    if not s:
+        return ""
+    # remove bracketed content and common suffixes like - remaster, remastered, version
+    s = re.sub(r"\s*[\(\[\{][^\)\]\}]*[\)\]\}]", " ", s)
+    s = re.sub(r"\s*-\s*(single|album)?\s*version.*$", " ", s, flags=re.IGNORECASE)
+    s = re.sub(r"\b(remaster(?:ed)?|live|edit|radio edit)\b", " ", s, flags=re.IGNORECASE)
+    s_norm = unicodedata.normalize("NFKD", s)
+    s_ascii = s_norm.encode("ascii", "ignore").decode("ascii")
+    s_ascii = re.sub(r"[^A-Za-z0-9\s]", " ", s_ascii)
+    s_ascii = re.sub(r"\s+", " ", s_ascii).strip().lower()
     return s_ascii
 
 
@@ -241,6 +262,83 @@ def _tidal_search_artists(sess: Any, name: str) -> List[Dict[str, str]]:
         _log.warning(f"TIDAL search (normalized) failed for '{name}': {e}")
 
     _log.debug(f"TIDAL search returned 0 candidates for '{name}'")
+    return []
+
+
+def _tidal_search_tracks(sess: Any, title: str, artist: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Search for tracks on TIDAL and extract comparable fields."""
+    def extract_tracks(res: Any) -> List[Dict[str, Any]]:
+        out: List[Dict[str, Any]] = []
+        try:
+            items: List[Any] = []
+            if isinstance(res, dict):
+                for k in ("tracks", "Tracks", "track", "Track"):
+                    if k in res and isinstance(res[k], list):
+                        items = res[k]
+                        break
+            elif isinstance(res, list):
+                items = res
+            for t in items:
+                try:
+                    tid = getattr(t, "id", None) if not isinstance(t, dict) else t.get("id")
+                    name = getattr(t, "name", None) if not isinstance(t, dict) else t.get("name")
+                    duration = getattr(t, "duration", None) if not isinstance(t, dict) else t.get("duration")
+                    isrc = getattr(t, "isrc", None) if not isinstance(t, dict) else t.get("isrc")
+                    # artists may be list on attr .artists
+                    arts = []
+                    if not isinstance(t, dict):
+                        try:
+                            arts = [getattr(a, "name", "") for a in (getattr(t, "artists", []) or [])]
+                        except Exception:
+                            arts = []
+                    else:
+                        aobj = t.get("artists")
+                        if isinstance(aobj, list):
+                            arts = [str(a.get("name")) for a in aobj if isinstance(a, dict) and a.get("name")]
+                    if tid and name:
+                        out.append({
+                            "id": str(tid),
+                            "title": str(name),
+                            "artists": arts,
+                            "isrc": isrc if isrc else None,
+                            "duration": int(duration) if duration is not None else None,
+                        })
+                except Exception:
+                    continue
+        except Exception as e:
+            _log.debug(f"extract_tracks parse error for '{title}': {e}")
+        return out
+
+    q = title if not artist else f"{title} {artist}"
+    try:
+        # Some tidalapi versions require passing None to get tracks
+        res = sess.search(q, None, limit=25)
+        _log.debug(f"TIDAL search tracks raw type={type(res)} for '{q}'")
+        out = extract_tracks(res)
+        if out:
+            return out
+    except Exception as e:
+        _log.warning(f"TIDAL track search failed for '{q}': {e}")
+    try:
+        # fallback all models
+        res2 = sess.search(q, None, limit=25)
+        _log.debug(f"TIDAL search all-models raw type={type(res2)} for '{q}'")
+        out = extract_tracks(res2)
+        if out:
+            return out
+    except Exception:
+        pass
+    # Try normalized title
+    nq = _norm_track_title(title)
+    if nq and nq != title:
+        try:
+            res3 = sess.search(nq, None, limit=25)
+            out = extract_tracks(res3)
+            if out:
+                return out
+        except Exception:
+            pass
+    _log.debug(f"TIDAL track search returned 0 candidates for '{q}'")
     return []
 
 
@@ -487,3 +585,207 @@ async def resolve_pending(pending_id: int, tidal_id: str = Form(...), tidal_name
 @app.get("/healthz")
 async def healthz():
     return {"ok": True}
+
+
+# ---- Tracks sync: Spotify liked tracks -> TIDAL favorites ----
+
+def _tidal_favorite_tracks_set(sess) -> set:
+    try:
+        favs = sess.user.favorites.tracks()
+        return {str(t.id) for t in favs}
+    except Exception:
+        return set()
+
+
+def _score_track_candidate(sp_title: str, sp_artist: str, sp_isrc: Optional[str], sp_dur: Optional[int], cand: Dict[str, Any]) -> float:
+    # ISRC exact match wins
+    if sp_isrc and cand.get("isrc") and str(cand.get("isrc")).upper() == sp_isrc.upper():
+        return 1000.0
+    # Compute normalized scores
+    qt = _norm_track_title(sp_title)
+    qa = _norm_artist_name(sp_artist)
+    ct = _norm_track_title(cand.get("title") or "")
+    ca = _norm_artist_name((cand.get("artists") or [""])[0] if isinstance(cand.get("artists"), list) and cand.get("artists") else (cand.get("artist") or ""))
+    from rapidfuzz import fuzz
+    s_title = float(fuzz.WRatio(qt, ct))
+    s_artist = float(fuzz.WRatio(qa, ca))
+    s = 0.7 * s_title + 0.3 * s_artist
+    # duration bonus if within 3 seconds
+    try:
+        _d = cand.get("duration")
+        cdur = int(_d) if isinstance(_d, (int, float, str)) else None
+        if sp_dur and cdur and abs(int(sp_dur) - cdur) <= 3:
+            s += 10.0
+    except Exception:
+        pass
+    return s
+
+
+def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
+    _job_set(job_id, state="running", started_at=datetime.now(timezone.utc).isoformat())
+    try:
+        try:
+            sp = get_spotify_client()
+        except Exception as e:
+            _job_set(job_id, state="error", error=str(e))
+            return
+        try:
+            sess = get_tidal_session()
+        except Exception as e:
+            _job_set(job_id, state="error", error=str(e))
+            return
+
+        # Fetch liked tracks from Spotify
+        tracks: List[Dict[str, Any]] = []
+        offset = 0
+        page_size = 50
+        while True:
+            page = sp.current_user_saved_tracks(limit=page_size, offset=offset) or {}
+            items = page.get("items") or []
+            for it in items:
+                t = it.get("track") or {}
+                if not t:
+                    continue
+                tid = t.get("id")
+                name = t.get("name")
+                artists = t.get("artists") or []
+                artist_name = artists[0]["name"] if artists else ""
+                duration_ms = t.get("duration_ms")
+                isrc = None
+                ext = t.get("external_ids") or {}
+                if ext.get("isrc"):
+                    isrc = ext.get("isrc")
+                dur = int(duration_ms / 1000) if duration_ms else None
+                if tid and name:
+                    tracks.append({
+                        "id": tid,
+                        "title": name,
+                        "artist": artist_name,
+                        "isrc": isrc,
+                        "duration": dur,
+                    })
+            offset += len(items)
+            if limit and len(tracks) >= limit:
+                tracks = tracks[:limit]
+                break
+            if not page.get("next"):
+                break
+
+        total = len(tracks)
+        _job_set(job_id, total=total, processed=0, auto_matched=0, pending_count=0)
+
+        # Cleanup stale pending
+        with SessionLocal() as db:
+            removed = cleanup_pending_tracks_for_resolved(db)
+            if removed:
+                _log.info("[job %s] Cleared %d stale pending tracks", job_id, removed)
+
+        favorites = _tidal_favorite_tracks_set(sess)
+        processed = 0
+        auto_matched = 0
+        pending = 0
+        for tr in tracks:
+            spid = tr["id"]
+            title = tr["title"]
+            artist = tr["artist"]
+            isrc = tr.get("isrc")
+            dur = tr.get("duration")
+            try:
+                cands = _tidal_search_tracks(sess, title, artist)
+                # Evaluate candidates
+                ranked: List[Dict[str, Any]] = []
+                for c in cands:
+                    score = _score_track_candidate(title, artist, isrc, dur, c)
+                    c2 = dict(c)
+                    c2["score"] = float(score)
+                    ranked.append(c2)
+                ranked.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
+                top = ranked[0] if ranked else None
+                accept = False
+                if top:
+                    if float(top.get("score", 0.0)) >= 95.0:
+                        accept = True
+                    # ISRC winner yields score >= 1000
+                    if float(top.get("score", 0.0)) >= 900.0:
+                        accept = True
+                if accept and top:
+                    tid = str(top["id"])
+                    if tid not in favorites:
+                        try:
+                            sess.user.favorites.add_track(int(tid))
+                        except Exception:
+                            pass
+                        favorites.add(tid)
+                    with SessionLocal() as db:
+                        upsert_track_map(db, spid, title, artist, tid, top.get("title"), (top.get("artists") or [""])[0] if isinstance(top.get("artists"), list) else top.get("artist"), isrc, float(top.get("score", 0.0)), True)
+                        delete_pending_track_by_spotify_id(db, spid)
+                    auto_matched += 1
+                else:
+                    with SessionLocal() as db:
+                        add_pending_track_resolution(db, spid, title, artist, isrc, ranked[:10])
+                        upsert_track_map(db, spid, title, artist, None, None, None, isrc, float(ranked[0]["score"]) if ranked else 0.0, False)
+                    pending += 1
+            except Exception:
+                with SessionLocal() as db:
+                    add_pending_track_resolution(db, spid, title, artist, isrc, [])
+                pending += 1
+            finally:
+                processed += 1
+                if processed % 5 == 0 or processed == total:
+                    _job_set(job_id, processed=processed, auto_matched=auto_matched, pending_count=pending)
+
+        _job_set(job_id, state="done", finished_at=datetime.now(timezone.utc).isoformat(), processed=processed, auto_matched=auto_matched, pending_count=pending)
+    except Exception as e:
+        _job_set(job_id, state="error", error=str(e))
+
+
+@app.post("/sync/tracks/start")
+async def start_sync_tracks(request: Request):
+    limit_param = request.query_params.get("limit")
+    try:
+        limit = int(limit_param) if limit_param else 0
+    except ValueError:
+        limit = 0
+    job_id = str(uuid.uuid4())
+    _job_set(job_id, state="pending", limit=limit)
+    threading.Thread(target=_run_sync_tracks_job, args=(job_id, limit), daemon=True).start()
+    return JSONResponse({"job_id": job_id})
+
+
+@app.get("/sync/tracks/status")
+async def sync_tracks_status(job_id: str):
+    with _jobs_lock:
+        data = _jobs.get(job_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="job not found")
+    return JSONResponse(data)
+
+
+@app.get("/pending-tracks", response_class=HTMLResponse)
+async def list_pending_tracks(request: Request):
+    with SessionLocal() as db:
+        items = get_pending_tracks(db)
+    return templates.TemplateResponse("pending_tracks.html", {"request": request, "items": items})
+
+
+@app.post("/resolve-track/{pending_id}")
+async def resolve_track(pending_id: int, tidal_id: str = Form(...), tidal_title: str = Form(...), tidal_artist: str = Form("")):
+    sess = get_tidal_session()
+    with SessionLocal() as db:
+        items = {p["id"]: p for p in get_pending_tracks(db)}
+        if pending_id not in items:
+            raise HTTPException(status_code=404, detail="Pending item not found")
+        p = items[pending_id]
+        spid = p["spotify_id"]
+        sptitle = p["spotify_title"]
+        spart = p["spotify_artist"]
+        isrc = p.get("isrc")
+        favs = _tidal_favorite_tracks_set(sess)
+        if tidal_id not in favs:
+            try:
+                sess.user.favorites.add_track(int(tidal_id))
+            except Exception:
+                pass
+        upsert_track_map(db, spid, sptitle, spart, tidal_id, tidal_title, tidal_artist, isrc, 0.0, True)
+        delete_pending_track(db, pending_id)
+    return JSONResponse({"status": "ok"})
