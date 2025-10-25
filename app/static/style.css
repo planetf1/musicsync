@@ -47,6 +47,7 @@ select,input[type="text"],input[type="number"],input[type="search"]{padding:6px;
 	white-space:nowrap;
 	font-variant-numeric: tabular-nums;
 	font-feature-settings: "tnum" 1, "lnum" 1;
+	font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
 /* Cards */

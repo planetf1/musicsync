@@ -1575,28 +1575,61 @@ async def library_playlists(request: Request):
             page_size = 25
 
     with SessionLocal() as db:
-        items, total = list_synced_playlists(
-            db,
-            search=q,
-            sort=sort,
-            order=order,
-            page=page,
-            page_size=page_size,
-        )
-        # Attach lightweight stats (count and total duration) for visible items only
-        try:
+        # For sort by computed stats (tracks or duration), fetch all, sort in memory, then paginate
+        if sort in ("tracks", "duration"):
+            all_items, total = list_synced_playlists(
+                db,
+                search=q,
+                sort="last_synced_at",  # base sort doesn't matter; we'll sort in memory
+                order="desc",
+                page=1,
+                page_size=0,
+            )
+            # attach stats for all to enable proper sorting
+            for it in all_items:
+                try:
+                    it["stats"] = get_playlist_stats(db, it["spotify_id"])  # type: ignore[index]
+                except Exception:
+                    it["stats"] = {"count": 0, "total_seconds": 0}
+            reverse = (order.lower() == "desc")
+            if sort == "tracks":
+                all_items.sort(key=lambda x: int((x.get("stats") or {}).get("count", 0)), reverse=reverse)
+            else:  # duration
+                all_items.sort(key=lambda x: int((x.get("stats") or {}).get("total_seconds", 0)), reverse=reverse)
+            # paginate
+            total = len(all_items)
+            if page_size and page_size > 0:
+                pages = (total + page_size - 1) // page_size
+                if page < 1:
+                    page = 1
+                if pages and page > pages:
+                    page = pages
+                start = (page - 1) * page_size
+                end = start + page_size
+                items = all_items[start:end]
+            else:
+                pages = 1
+                items = all_items
+        else:
+            items, total = list_synced_playlists(
+                db,
+                search=q,
+                sort=sort,
+                order=order,
+                page=page,
+                page_size=page_size,
+            )
+            # Attach stats for visible items only
             for it in items:
                 try:
                     it["stats"] = get_playlist_stats(db, it["spotify_id"])  # type: ignore[index]
                 except Exception:
                     it["stats"] = {"count": 0, "total_seconds": 0}
-        except Exception:
-            pass
-    pages = (total + page_size - 1) // page_size if page_size else 1
-    if page < 1:
-        page = 1
-    if pages and page > pages:
-        page = pages
+            pages = (total + page_size - 1) // page_size if page_size else 1
+            if page < 1:
+                page = 1
+            if pages and page > pages:
+                page = pages
     return templates.TemplateResponse(
         "library_playlists.html",
         {

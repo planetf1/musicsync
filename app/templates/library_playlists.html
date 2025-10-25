@@ -31,8 +31,8 @@
           {% set page_size_param = 'all' if page_size == 0 else page_size %}
           <th><a href="/library/playlists?sort=last_synced_at&order={{ next_order if sort=='last_synced_at' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}">Last Synced{% if sort=='last_synced_at' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th><a href="/library/playlists?sort=spotify_name&order={{ next_order if sort=='spotify_name' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Playlist{% if sort=='spotify_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
-          <th class="num">Tracks</th>
-          <th class="num">Duration</th>
+          <th class="num"><a href="/library/playlists?sort=tracks&order={{ next_order if sort=='tracks' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}">Tracks{% if sort=='tracks' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th class="num"><a href="/library/playlists?sort=duration&order={{ next_order if sort=='duration' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}">Duration{% if sort=='duration' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th>Spotify</th>
           <th><a href="/library/playlists?sort=tidal_name&order={{ next_order if sort=='tidal_name' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL{% if sort=='tidal_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
         </tr>
