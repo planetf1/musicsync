@@ -1669,6 +1669,9 @@ def run() -> None:
     - MUSICSYNC_HOST (default 127.0.0.1)
     - MUSICSYNC_PORT (default 8000)
     - MUSICSYNC_RELOAD (default 1 if in development)
+    - MUSICSYNC_LOOP (default 'asyncio'; set 'uvloop' to enable uvloop if installed)
+    - MUSICSYNC_HTTP (default 'h11'; set 'httptools' to enable httptools if installed)
+    - MUSICSYNC_ACCESS_LOG (default 1; set 0 to disable access logs)
     """
     import uvicorn
     host = os.environ.get("MUSICSYNC_HOST", "127.0.0.1")
@@ -1677,4 +1680,15 @@ def run() -> None:
     except ValueError:
         port = 8000
     reload_flag = os.environ.get("MUSICSYNC_RELOAD", "1") not in ("0", "false", "False")
-    uvicorn.run("app.main:app", host=host, port=port, reload=reload_flag)
+    loop_impl = os.environ.get("MUSICSYNC_LOOP", "asyncio")
+    http_impl = os.environ.get("MUSICSYNC_HTTP", "h11")
+    access_log = os.environ.get("MUSICSYNC_ACCESS_LOG", "1") not in ("0", "false", "False")
+    uvicorn.run(
+        "app.main:app",
+        host=host,
+        port=port,
+        reload=reload_flag,
+        loop=loop_impl,
+        http=http_impl,
+        access_log=access_log,
+    )

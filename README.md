@@ -57,12 +57,17 @@ brew install astral-sh/uv/uv || curl -LsSf https://astral.sh/uv/install.sh | sh
 # 2) Run directly with uv (no venv needed). Note: invoke 'uvicorn' as the command.
 uv run --with uvicorn uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
+# Compatibility mode (avoids native uvloop/httptools)
+uv run --with uvicorn uvicorn app.main:app --host 127.0.0.1 --port 8000 --loop asyncio --http h11
+
 # (Alternative)
 # uv run --with uvicorn python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
 # Or install the CLI tool from this repo via uv
 uv tool install "git+https://github.com/planetf1/musicsync.git"
 musicsync  # starts the server using uvicorn
+# You can tune the loop/http with env vars, e.g.:
+# MUSICSYNC_LOOP=asyncio MUSICSYNC_HTTP=h11 MUSICSYNC_RELOAD=0 musicsync
 ```
 
 Option B — classic venv
@@ -73,6 +78,9 @@ source .venv/bin/activate
 pip install -r requirements.txt
 # For low-memory environments (avoid reload watchers)
 uvicorn app.main:app --host 127.0.0.1 --port 8000
+
+# Pure-Python compatibility (no uvloop/httptools)
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --loop asyncio --http h11
 ```
 
 Then open:
