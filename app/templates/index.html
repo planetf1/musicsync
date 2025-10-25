@@ -142,7 +142,9 @@
         btn.disabled = true;
         div.textContent = 'Starting playlist sync…';
         try{
-          const resp = await fetch('/sync/playlists/start', {method:'POST'});
+          const debugLimit = document.getElementById('chk-limit-playlists-25')?.checked ? 25 : 0;
+          const url = debugLimit ? ('/sync/playlists/start?limit=' + debugLimit) : '/sync/playlists/start';
+          const resp = await fetch(url, {method:'POST'});
           if(!resp.ok){ div.textContent = 'Failed to start playlist sync.'; btn.disabled = false; return; }
           const data = await resp.json();
           pollPlaylistSync(data.job_id);
@@ -184,6 +186,9 @@
         playlistSyncTimer = setInterval(render, 2000);
       }
     </script>
+  </div>
+  <div style="margin-top:6px">
+    <label><input type="checkbox" id="chk-limit-playlists-25" /> Debug: limit to first 25 playlists</label>
   </div>
   <hr />
   <div class="actions">
