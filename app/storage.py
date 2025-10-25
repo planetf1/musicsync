@@ -63,6 +63,7 @@ class RunLog(Base):
 
 # --- Tracks ---
 
+
 class TrackMap(Base):
     __tablename__ = "track_map"
     spotify_id = Column(String(64), primary_key=True)
@@ -75,7 +76,7 @@ class TrackMap(Base):
     tidal_artist_id = Column(String(64), nullable=True)
     isrc = Column(String(32), nullable=True)
     spotify_duration = Column(Integer, nullable=True)  # seconds
-    tidal_duration = Column(Integer, nullable=True)    # seconds
+    tidal_duration = Column(Integer, nullable=True)  # seconds
     confidence = Column(Float, default=0.0)
     resolved = Column(Boolean, default=False)
     last_synced_at = Column(DateTime, nullable=True)
@@ -93,6 +94,7 @@ class PendingTrackResolution(Base):
 
 
 # --- Sync Events (audit/backup) ---
+
 
 class ArtistSyncEvent(Base):
     __tablename__ = "artist_sync_event"
@@ -120,6 +122,7 @@ class TrackSyncEvent(Base):
 
 
 # --- Playlists ---
+
 
 class PlaylistMap(Base):
     __tablename__ = "playlist_map"
@@ -198,6 +201,7 @@ def get_db():
 
 # Helper functions
 
+
 def save_token(db: OrmSession, service: str, data: dict[str, Any]) -> None:
     payload = json.dumps(data)
     existing = db.get(Token, service)
@@ -262,11 +266,7 @@ def add_pending_resolution(
 ) -> None:
     # Remove any existing pending for this spotify_id to keep latest
     db.query(PendingResolution).filter(PendingResolution.spotify_id == spotify_id).delete()
-    db.add(
-        PendingResolution(
-            spotify_id=spotify_id, spotify_name=spotify_name, candidates_json=json.dumps(candidates)
-        )
-    )
+    db.add(PendingResolution(spotify_id=spotify_id, spotify_name=spotify_name, candidates_json=json.dumps(candidates)))
     db.commit()
 
 
@@ -303,7 +303,9 @@ def cleanup_pending_for_resolved(db: OrmSession) -> int:
     Returns the number of rows deleted (best-effort estimate).
     """
     subq = db.query(ArtistMap.spotify_id).filter(ArtistMap.resolved == True)
-    deleted = db.query(PendingResolution).filter(PendingResolution.spotify_id.in_(subq)).delete(synchronize_session=False)
+    deleted = (
+        db.query(PendingResolution).filter(PendingResolution.spotify_id.in_(subq)).delete(synchronize_session=False)
+    )
     db.commit()
     return int(deleted or 0)
 
@@ -314,6 +316,7 @@ def log(db: OrmSession, phase: str, message: str) -> None:
 
 
 # Track helpers
+
 
 def upsert_track_map(
     db: OrmSession,
@@ -395,12 +398,17 @@ def delete_pending_track_by_spotify_id(db: OrmSession, spotify_id: str) -> None:
 
 def cleanup_pending_tracks_for_resolved(db: OrmSession) -> int:
     subq = db.query(TrackMap.spotify_id).filter(TrackMap.resolved == True)
-    deleted = db.query(PendingTrackResolution).filter(PendingTrackResolution.spotify_id.in_(subq)).delete(synchronize_session=False)
+    deleted = (
+        db.query(PendingTrackResolution)
+        .filter(PendingTrackResolution.spotify_id.in_(subq))
+        .delete(synchronize_session=False)
+    )
     db.commit()
     return int(deleted or 0)
 
 
 # Event helpers
+
 
 def add_artist_sync_event(
     db: OrmSession,
@@ -450,6 +458,7 @@ def add_track_sync_event(
 
 # Playlist helpers
 
+
 def upsert_playlist_map(
     db: OrmSession,
     spotify_id: str,
@@ -487,6 +496,7 @@ def replace_playlist_tracks(db: OrmSession, playlist_spotify_id: str, entries: l
     and optional tidal_track_id, tidal_title, tidal_artist, isrc.
     """
     from sqlalchemy import delete
+
     db.execute(delete(PlaylistTrack).where(PlaylistTrack.playlist_spotify_id == playlist_spotify_id))
     now = datetime.utcnow()
     for e in entries:
@@ -581,6 +591,7 @@ def list_playlist_tracks(
 def get_playlist_stats(db: OrmSession, playlist_spotify_id: str) -> dict[str, Any]:
     """Return aggregate stats for a playlist: track count and total duration (seconds)."""
     from sqlalchemy import func
+
     q = db.query(
         func.count(PlaylistTrack.id),
         func.coalesce(func.sum(PlaylistTrack.spotify_duration), 0),
@@ -590,6 +601,7 @@ def get_playlist_stats(db: OrmSession, playlist_spotify_id: str) -> dict[str, An
 
 
 # Export helpers (for backup)
+
 
 def export_artists(db: OrmSession) -> list[dict[str, Any]]:
     rows = db.query(ArtistMap).all()
@@ -656,6 +668,7 @@ def export_playlists(db: OrmSession) -> list[dict[str, Any]]:
 
 
 # Library listing helpers (for UI)
+
 
 def list_synced_artists(
     db: OrmSession,
@@ -740,10 +753,12 @@ def list_synced_artists(
         )
     # If in-memory sort by genre requested, apply now and paginate
     if in_memory_sort:
+
         def gkey(item: dict[str, Any]) -> str:
             if item.get("genres"):
                 return str(item["genres"][0]).lower()
             return "~"  # tilde sorts after letters
+
         enriched.sort(key=gkey, reverse=(order.lower() == "desc"))
         if page_size != 0:
             if page < 1:
@@ -768,6 +783,7 @@ def list_genre_counts(
     Returns a list of (genre, count) sorted by count desc then genre asc.
     """
     from sqlalchemy import func, or_
+
     q = db.query(ArtistMap).filter(ArtistMap.tidal_id.isnot(None))
     if search:
         s = f"%{search.lower()}%"

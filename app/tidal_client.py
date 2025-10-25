@@ -110,7 +110,10 @@ def get_login_url_and_worker() -> dict[str, object]:
 
     if _login_in_progress:
         # A login is already in progress; avoid starting another
-        return {"error": "A TIDAL login is already pending. Please finish in the browser and try again.", "pending": True}
+        return {
+            "error": "A TIDAL login is already pending. Please finish in the browser and try again.",
+            "pending": True,
+        }
 
     login, future = sess.login_oauth()  # type: ignore[attr-defined]
     _login_state = {"pending": True, "connected": False, "error": None}
@@ -153,7 +156,9 @@ def get_login_url_and_worker() -> dict[str, object]:
                 )
             _login_state.update({"pending": False, "connected": True, "error": None})
         else:
-            _login_state.update({"pending": False, "connected": False, "error": "Authorization not confirmed or expired."})
+            _login_state.update(
+                {"pending": False, "connected": False, "error": "Authorization not confirmed or expired."}
+            )
         # No matter what, login attempt is finished
         global _login_in_progress
         _login_in_progress = False
