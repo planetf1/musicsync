@@ -49,6 +49,7 @@ from .storage import (
     list_playlist_tracks,
     update_artist_genres,
     list_genre_counts,
+    get_playlist_stats,
     ArtistMap,
 )
 from .spotify_client import get_authorize_url, exchange_code_for_token, get_spotify_client
@@ -1637,6 +1638,7 @@ async def library_playlist_detail(spotify_id: str, request: Request):
             page=page,
             page_size=page_size,
         )
+        stats = get_playlist_stats(db, spotify_id)
     pages = (total + page_size - 1) // page_size if page_size else 1
     if page < 1:
         page = 1
@@ -1650,12 +1652,91 @@ async def library_playlist_detail(spotify_id: str, request: Request):
             "items": items,
             "count": len(items),
             "total": total,
+            "stats": stats,
             "page": page,
             "pages": pages,
             "page_size": page_size,
             "sort": sort,
             "order": order,
             "q": q or "",
+        },
+    )
+
+
+@app.get("/status", response_class=HTMLResponse)
+async def status_page(request: Request):
+    import platform
+    import sys
+    import time
+
+    # Connection status
+    spotify_ok = False
+    try:
+        _ = get_spotify_client()
+        spotify_ok = True
+    except Exception:
+        spotify_ok = False
+
+    try:
+        tidal_ok = tidal_logged_in()
+    except Exception:
+        tidal_ok = False
+
+    # Basic env/runtime info
+    pyver = sys.version.splitlines()[0]
+    plat = platform.platform()
+
+    # DB info and counts
+    with SessionLocal() as db:
+        try:
+            artists, _ = list_synced_artists(db, page_size=0)
+            tracks, _ = list_synced_tracks(db, page_size=0)
+            playlists, _ = list_synced_playlists(db, page_size=0)
+        except Exception:
+            artists, tracks, playlists = [], [], []
+        try:
+            pend_arts = get_pending(db)
+        except Exception:
+            pend_arts = []
+        try:
+            pend_trks = get_pending_tracks(db)
+        except Exception:
+            pend_trks = []
+
+    try:
+        db_size = os.path.getsize(DB_PATH)
+    except Exception:
+        db_size = 0
+
+    # Summarize jobs (best-effort)
+    with _jobs_lock:
+        jobs_snapshot = [{"id": jid, **data} for jid, data in _jobs.items()]
+
+    env_flags = {
+        "MUSICSYNC_LOOP": os.environ.get("MUSICSYNC_LOOP", "asyncio"),
+        "MUSICSYNC_HTTP": os.environ.get("MUSICSYNC_HTTP", "h11"),
+        "MUSICSYNC_RELOAD": os.environ.get("MUSICSYNC_RELOAD", "1"),
+        "MUSICSYNC_ACCESS_LOG": os.environ.get("MUSICSYNC_ACCESS_LOG", "1"),
+    }
+
+    return templates.TemplateResponse(
+        "status.html",
+        {
+            "request": request,
+            "python_version": pyver,
+            "platform": plat,
+            "db_path": DB_PATH,
+            "db_size": db_size,
+            "spotify_ok": spotify_ok,
+            "tidal_ok": tidal_ok,
+            "artists_count": len(artists),
+            "tracks_count": len(tracks),
+            "playlists_count": len(playlists),
+            "pending_artists_count": len(pend_arts),
+            "pending_tracks_count": len(pend_trks),
+            "jobs": jobs_snapshot,
+            "env_flags": env_flags,
+            "now": datetime.now(timezone.utc).isoformat(),
         },
     )
 

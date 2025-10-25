@@ -8,6 +8,23 @@
       <span style="margin-left:12px;">TIDAL: <a href="https://tidal.com/browse/playlist/{{ playlist.tidal_id }}" target="_blank" rel="noopener">open</a></span>
     {% endif %}
   </div>
+  {% if stats %}
+    {% set total = stats.total_seconds or 0 %}
+    {% set h = (total // 3600) | int %}
+    {% set m = ((total % 3600) // 60) | int %}
+    {% set s = (total % 60) | int %}
+    <div class="card" style="margin: 8px 0; padding:8px; display:inline-block;">
+      <strong>Summary:</strong>
+      <span style="margin-left:8px;">{{ stats.count }} tracks</span>
+      <span style="margin-left:12px;">Total duration:
+        {% if h > 0 %}
+          {{ h }}:{% if m < 10 %}0{% endif %}{{ m }}:{% if s < 10 %}0{% endif %}{{ s }}
+        {% else %}
+          {{ m }}:{% if s < 10 %}0{% endif %}{{ s }}
+        {% endif %}
+      </span>
+    </div>
+  {% endif %}
   <form method="get" action="/library/playlists/{{ playlist.spotify_id }}" style="margin-bottom:10px; display:flex; gap:8px; align-items:center; flex-wrap: wrap;">
     <input type="text" name="q" value="{{ q }}" placeholder="Search tracks…" />
     <input type="hidden" name="sort" value="{{ sort }}" />

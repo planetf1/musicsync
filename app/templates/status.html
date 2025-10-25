@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  <h2>System Status</h2>
+  <div class="card" style="padding:12px; margin:8px 0;">
+    <div><strong>Python:</strong> {{ python_version }}</div>
+    <div><strong>Platform:</strong> {{ platform }}</div>
+    <div><strong>Server time (UTC):</strong> {{ now }}</div>
+  </div>
+
+  <div class="card" style="padding:12px; margin:8px 0;">
+    <div><strong>Database Path:</strong> {{ db_path }}</div>
+    <div><strong>Database Size:</strong> {{ (db_size/1024/1024)|round(2) }} MB</div>
+    <div>
+      <strong>Counts:</strong>
+      <span style="margin-left:8px;">Artists {{ artists_count }}</span>
+      <span style="margin-left:8px;">Tracks {{ tracks_count }}</span>
+      <span style="margin-left:8px;">Playlists {{ playlists_count }}</span>
+      <span style="margin-left:8px;">Pending Artists {{ pending_artists_count }}</span>
+      <span style="margin-left:8px;">Pending Tracks {{ pending_tracks_count }}</span>
+    </div>
+  </div>
+
+  <div class="card" style="padding:12px; margin:8px 0;">
+    <div><strong>Connections:</strong></div>
+    <ul>
+      <li>Spotify: {{ 'OK' if spotify_ok else 'Not connected' }}</li>
+      <li>TIDAL: {{ 'OK' if tidal_ok else 'Not connected' }}</li>
+    </ul>
+  </div>
+
+  <div class="card" style="padding:12px; margin:8px 0;">
+    <div><strong>Server Flags:</strong></div>
+    <ul>
+      <li>MUSICSYNC_LOOP = {{ env_flags.MUSICSYNC_LOOP }}</li>
+      <li>MUSICSYNC_HTTP = {{ env_flags.MUSICSYNC_HTTP }}</li>
+      <li>MUSICSYNC_RELOAD = {{ env_flags.MUSICSYNC_RELOAD }}</li>
+      <li>MUSICSYNC_ACCESS_LOG = {{ env_flags.MUSICSYNC_ACCESS_LOG }}</li>
+    </ul>
+  </div>
+
+  <div class="card" style="padding:12px; margin:8px 0;">
+    <div style="display:flex; align-items:center; gap:8px;">
+      <strong>Jobs:</strong>
+      <span>{{ jobs|length }} total</span>
+    </div>
+    {% if jobs %}
+      <div style="overflow-x:auto">
+        <table class="table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>State</th>
+              <th>Processed</th>
+              <th>Total</th>
+              <th>Info</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for j in jobs %}
+              <tr>
+                <td><code>{{ j.id }}</code></td>
+                <td>{{ j.state or '—' }}</td>
+                <td>{{ j.processed if j.processed is defined else '—' }}</td>
+                <td>{{ j.total if j.total is defined else '—' }}</td>
+                <td>{{ j|tojson }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p>No background jobs running.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

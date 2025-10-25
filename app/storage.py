@@ -577,6 +577,17 @@ def list_playlist_tracks(
     return out, total
 
 
+def get_playlist_stats(db: OrmSession, playlist_spotify_id: str) -> Dict[str, Any]:
+    """Return aggregate stats for a playlist: track count and total duration (seconds)."""
+    from sqlalchemy import func
+    q = db.query(
+        func.count(PlaylistTrack.id),
+        func.coalesce(func.sum(PlaylistTrack.spotify_duration), 0),
+    ).filter(PlaylistTrack.playlist_spotify_id == playlist_spotify_id)
+    count_val, total_dur = q.one()
+    return {"count": int(count_val or 0), "total_seconds": int(total_dur or 0)}
+
+
 # Export helpers (for backup)
 
 def export_artists(db: OrmSession) -> List[Dict[str, Any]]:
