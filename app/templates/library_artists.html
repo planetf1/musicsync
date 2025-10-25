@@ -45,11 +45,26 @@
       </tbody>
     </table>
   </div>
-  <div class="pagination" style="margin-top:10px; display:flex; align-items:center; gap:8px;">
+  <div class="pagination" style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap: wrap;">
     {% set prev_page = page - 1 %}
     {% set next_page = page + 1 %}
     <span>Page {{ page }} of {{ pages }}</span>
     <a class="btn" href="/library/artists?page={{ prev_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}" {% if page <= 1 %}style="pointer-events:none; opacity:0.5"{% endif %}>Prev</a>
+    {# numbered pages #}
+    {% set window = 2 %}
+    {% set start = 1 if pages <= 10 else [1, page - window] | max %}
+    {% set end = pages if pages <= 10 else [pages, page + window] | min %}
+    {% if start > 1 %}
+      <a class="btn" href="/library/artists?page=1&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}">1</a>
+      {% if start > 2 %}<span>…</span>{% endif %}
+    {% endif %}
+    {% for pnum in range(start, end + 1) %}
+      <a class="btn{% if pnum == page %} secondary{% endif %}" href="/library/artists?page={{ pnum }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}">{{ pnum }}</a>
+    {% endfor %}
+    {% if end < pages %}
+      {% if end < pages - 1 %}<span>…</span>{% endif %}
+      <a class="btn" href="/library/artists?page={{ pages }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}">{{ pages }}</a>
+    {% endif %}
     <a class="btn" href="/library/artists?page={{ next_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}" {% if page >= pages %}style="pointer-events:none; opacity:0.5"{% endif %}>Next</a>
   </div>
   {% endif %}

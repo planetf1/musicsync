@@ -34,8 +34,18 @@
         {% for it in items %}
           <tr>
             <td>{{ it.last_synced_at or '' }}</td>
-            <td>{{ it.spotify_title }}</td>
-            <td>{{ it.spotify_artist }}</td>
+            <td>
+              <a href="https://open.spotify.com/track/{{ it.spotify_id }}" target="_blank" rel="noopener">{{ it.spotify_title }}</a>
+            </td>
+            <td>
+              {% if it.spotify_artist_id %}
+                <a href="https://open.spotify.com/artist/{{ it.spotify_artist_id }}" target="_blank" rel="noopener">{{ it.spotify_artist }}</a>
+              {% elif it.spotify_artist %}
+                <a href="https://open.spotify.com/search/{{ it.spotify_artist | urlencode }}" target="_blank" rel="noopener">{{ it.spotify_artist }}</a>
+              {% else %}
+                {{ it.spotify_artist or '' }}
+              {% endif %}
+            </td>
             <td>
               {% if it.tidal_id %}
                 <a href="https://tidal.com/browse/track/{{ it.tidal_id }}" target="_blank">{{ it.tidal_title }}</a>
@@ -43,7 +53,15 @@
                 —
               {% endif %}
             </td>
-            <td>{{ it.tidal_artist or '' }}</td>
+            <td>
+              {% if it.tidal_artist_id %}
+                <a href="https://tidal.com/browse/artist/{{ it.tidal_artist_id }}" target="_blank" rel="noopener">{{ it.tidal_artist }}</a>
+              {% elif it.tidal_artist %}
+                <a href="https://tidal.com/search?q={{ it.tidal_artist | urlencode }}" target="_blank" rel="noopener">{{ it.tidal_artist }}</a>
+              {% else %}
+                {{ it.tidal_artist or '' }}
+              {% endif %}
+            </td>
             <td>{{ it.isrc or '' }}</td>
             <td>{{ '%.0f'|format(it.confidence or 0) }}</td>
           </tr>
@@ -51,11 +69,26 @@
       </tbody>
     </table>
   </div>
-  <div class="pagination" style="margin-top:10px; display:flex; align-items:center; gap:8px;">
+  <div class="pagination" style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap: wrap;">
     {% set prev_page = page - 1 %}
     {% set next_page = page + 1 %}
     <span>Page {{ page }} of {{ pages }}</span>
     <a class="btn" href="/library/tracks?page={{ prev_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}" {% if page <= 1 %}style="pointer-events:none; opacity:0.5"{% endif %}>Prev</a>
+    {# numbered pages #}
+    {% set window = 2 %}
+    {% set start = 1 if pages <= 10 else [1, page - window] | max %}
+    {% set end = pages if pages <= 10 else [pages, page + window] | min %}
+    {% if start > 1 %}
+      <a class="btn" href="/library/tracks?page=1&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}">1</a>
+      {% if start > 2 %}<span>…</span>{% endif %}
+    {% endif %}
+    {% for pnum in range(start, end + 1) %}
+      <a class="btn{% if pnum == page %} secondary{% endif %}" href="/library/tracks?page={{ pnum }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}">{{ pnum }}</a>
+    {% endfor %}
+    {% if end < pages %}
+      {% if end < pages - 1 %}<span>…</span>{% endif %}
+      <a class="btn" href="/library/tracks?page={{ pages }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}">{{ pages }}</a>
+    {% endif %}
     <a class="btn" href="/library/tracks?page={{ next_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}" {% if page >= pages %}style="pointer-events:none; opacity:0.5"{% endif %}>Next</a>
   </div>
   {% endif %}

@@ -10,13 +10,30 @@
       <form method="post" action="/resolve-track/{{ p.id }}">
         {% if p.candidates and p.candidates|length > 0 %}
           <label for="tsel-{{ p.id }}">Choose TIDAL match:</label>
-          <select id="tsel-{{ p.id }}" name="tidal_id" onchange="(function(sel,form){ const opt = sel.options[sel.selectedIndex]; const txt = opt.text; const dash = txt.indexOf(' — '); form.querySelector('[name=tidal_title]').value = dash>0?txt.substring(0,dash):txt; form.querySelector('[name=tidal_artist]').value = dash>0?txt.substring(dash+3):''; })(this,this.form)">
+          <select id="tsel-{{ p.id }}" name="tidal_id" onchange="(function(sel,form){ const opt = sel.options[sel.selectedIndex]; const txt = opt.text; const dash = txt.indexOf(' — '); form.querySelector('[name=tidal_title]').value = dash>0?txt.substring(0,dash):txt; form.querySelector('[name=tidal_artist]').value = dash>0?txt.substring(dash+3):''; const aid = opt.getAttribute('data-artist-id')||''; const hid=form.querySelector('[name=tidal_artist_id]'); if(hid) hid.value = aid; })(this,this.form)">
             {% for c in p.candidates %}
-              <option value="{{ c.id }}">{{ c.title }} — {{ (c.artists and c.artists[0]) or c.artist or '' }}{% if c.duration %} ({{ c.duration }}s){% endif %} ({{ '%.0f'|format(c.score) }})</option>
+              {% set a0 = (c.artists and c.artists[0]) or None %}
+              {% if a0 and a0 is mapping %}
+                {% set artist_name = a0.name %}
+                {% set artist_id = a0.id %}
+              {% else %}
+                {% set artist_name = a0 or c.artist or '' %}
+                {% set artist_id = '' %}
+              {% endif %}
+              <option value="{{ c.id }}" data-artist-id="{{ artist_id }}">{{ c.title }} — {{ artist_name }}{% if c.duration %} ({{ c.duration }}s){% endif %} ({{ '%.0f'|format(c.score) }})</option>
             {% endfor %}
           </select>
           <input type="hidden" name="tidal_title" value="{{ p.candidates[0].title }}" />
-          <input type="hidden" name="tidal_artist" value="{{ (p.candidates[0].artists and p.candidates[0].artists[0]) or p.candidates[0].artist or '' }}" />
+          {% set a0 = (p.candidates[0].artists and p.candidates[0].artists[0]) or None %}
+          {% if a0 and a0 is mapping %}
+            {% set artist_name = a0.name %}
+            {% set artist_id = a0.id %}
+          {% else %}
+            {% set artist_name = a0 or p.candidates[0].artist or '' %}
+            {% set artist_id = '' %}
+          {% endif %}
+          <input type="hidden" name="tidal_artist" value="{{ artist_name }}" />
+          <input type="hidden" name="tidal_artist_id" value="{{ artist_id }}" />
           <button type="submit" class="btn">Apply</button>
         {% else %}
           <p>No suggested TIDAL matches found.</p>

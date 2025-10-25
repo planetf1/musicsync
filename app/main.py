@@ -35,6 +35,7 @@ from .storage import (
     export_tracks,
     list_synced_artists,
     list_synced_tracks,
+    TrackMap,
 )
 from .spotify_client import get_authorize_url, exchange_code_for_token, get_spotify_client
 from .tidal_client import (
@@ -290,17 +291,24 @@ def _tidal_search_tracks(sess: Any, title: str, artist: Optional[str] = None) ->
                     name = getattr(t, "name", None) if not isinstance(t, dict) else t.get("name")
                     duration = getattr(t, "duration", None) if not isinstance(t, dict) else t.get("duration")
                     isrc = getattr(t, "isrc", None) if not isinstance(t, dict) else t.get("isrc")
-                    # artists may be list on attr .artists
-                    arts = []
+                    # artists may be list on attr .artists, include id+name if available
+                    arts: List[Dict[str, Any]] = []
                     if not isinstance(t, dict):
                         try:
-                            arts = [getattr(a, "name", "") for a in (getattr(t, "artists", []) or [])]
+                            arts = [
+                                {"id": getattr(a, "id", None), "name": getattr(a, "name", "")}
+                                for a in (getattr(t, "artists", []) or [])
+                                if getattr(a, "name", None)
+                            ]
                         except Exception:
                             arts = []
                     else:
                         aobj = t.get("artists")
                         if isinstance(aobj, list):
-                            arts = [str(a.get("name")) for a in aobj if isinstance(a, dict) and a.get("name")]
+                            arts = [
+                                {"id": a.get("id"), "name": str(a.get("name"))}
+                                for a in aobj if isinstance(a, dict) and a.get("name")
+                            ]
                     if tid and name:
                         out.append({
                             "id": str(tid),
@@ -613,7 +621,17 @@ def _score_track_candidate(sp_title: str, sp_artist: str, sp_isrc: Optional[str]
     qt = _norm_track_title(sp_title)
     qa = _norm_artist_name(sp_artist)
     ct = _norm_track_title(cand.get("title") or "")
-    ca = _norm_artist_name((cand.get("artists") or [""])[0] if isinstance(cand.get("artists"), list) and cand.get("artists") else (cand.get("artist") or ""))
+    cand_artist_name = ""
+    arts = cand.get("artists")
+    if isinstance(arts, list) and arts:
+        first = arts[0]
+        if isinstance(first, dict):
+            cand_artist_name = str(first.get("name") or "")
+        else:
+            cand_artist_name = str(first)
+    else:
+        cand_artist_name = str(cand.get("artist") or "")
+    ca = _norm_artist_name(cand_artist_name)
     from rapidfuzz import fuzz
     s_title = float(fuzz.WRatio(qt, ct))
     s_artist = float(fuzz.WRatio(qa, ca))
@@ -658,6 +676,7 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
                 name = t.get("name")
                 artists = t.get("artists") or []
                 artist_name = artists[0]["name"] if artists else ""
+                artist_id = artists[0].get("id") if artists and isinstance(artists[0], dict) else None
                 duration_ms = t.get("duration_ms")
                 isrc = None
                 ext = t.get("external_ids") or {}
@@ -669,6 +688,7 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
                         "id": tid,
                         "title": name,
                         "artist": artist_name,
+                        "artist_id": artist_id,
                         "isrc": isrc,
                         "duration": dur,
                     })
@@ -696,6 +716,7 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
             spid = tr["id"]
             title = tr["title"]
             artist = tr["artist"]
+            s_artist_id = tr.get("artist_id")
             isrc = tr.get("isrc")
             dur = tr.get("duration")
             try:
@@ -718,6 +739,17 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
                         accept = True
                 if accept and top:
                     tid = str(top["id"])
+                    # Extract primary TIDAL artist info
+                    t_artist_name = None
+                    t_artist_id = None
+                    t_arts = top.get("artists")
+                    if isinstance(t_arts, list) and t_arts:
+                        first = t_arts[0]
+                        if isinstance(first, dict):
+                            t_artist_name = first.get("name")
+                            t_artist_id = first.get("id")
+                        else:
+                            t_artist_name = str(first)
                     if tid not in favorites:
                         try:
                             sess.user.favorites.add_track(int(tid))
@@ -725,14 +757,14 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
                             pass
                         favorites.add(tid)
                     with SessionLocal() as db:
-                        upsert_track_map(db, spid, title, artist, tid, top.get("title"), (top.get("artists") or [""])[0] if isinstance(top.get("artists"), list) else top.get("artist"), isrc, float(top.get("score", 0.0)), True)
+                        upsert_track_map(db, spid, title, artist, s_artist_id, tid, top.get("title"), t_artist_name, t_artist_id, isrc, float(top.get("score", 0.0)), True)
                         delete_pending_track_by_spotify_id(db, spid)
-                        add_track_sync_event(db, spid, title, artist, tid, str(top.get("title") or ""), str(((top.get("artists") or [""])[0] if isinstance(top.get("artists"), list) else (top.get("artist") or ""))), isrc, "auto")
+                        add_track_sync_event(db, spid, title, artist, tid, str(top.get("title") or ""), str(t_artist_name or ""), isrc, "auto")
                     auto_matched += 1
                 else:
                     with SessionLocal() as db:
                         add_pending_track_resolution(db, spid, title, artist, isrc, ranked[:10])
-                        upsert_track_map(db, spid, title, artist, None, None, None, isrc, float(ranked[0]["score"]) if ranked else 0.0, False)
+                        upsert_track_map(db, spid, title, artist, s_artist_id, None, None, None, None, isrc, float(ranked[0]["score"]) if ranked else 0.0, False)
                     pending += 1
             except Exception:
                 with SessionLocal() as db:
@@ -778,7 +810,13 @@ async def list_pending_tracks(request: Request):
 
 
 @app.post("/resolve-track/{pending_id}")
-async def resolve_track(pending_id: int, tidal_id: str = Form(...), tidal_title: str = Form(...), tidal_artist: str = Form("")):
+async def resolve_track(
+    pending_id: int,
+    tidal_id: str = Form(...),
+    tidal_title: str = Form(...),
+    tidal_artist: str = Form(""),
+    tidal_artist_id: str = Form(""),
+):
     sess = get_tidal_session()
     with SessionLocal() as db:
         items = {p["id"]: p for p in get_pending_tracks(db)}
@@ -795,7 +833,24 @@ async def resolve_track(pending_id: int, tidal_id: str = Form(...), tidal_title:
                 sess.user.favorites.add_track(int(tidal_id))
             except Exception:
                 pass
-        upsert_track_map(db, spid, sptitle, spart, tidal_id, tidal_title, tidal_artist, isrc, 0.0, True)
+        # Preserve spotify artist id if known
+        existing_map = db.get(TrackMap, spid)
+        s_artist_id = getattr(existing_map, "spotify_artist_id", None) if existing_map else None
+        t_artist_id = tidal_artist_id or None
+        upsert_track_map(
+            db,
+            spid,
+            sptitle,
+            spart,
+            s_artist_id,
+            tidal_id,
+            tidal_title,
+            tidal_artist,
+            t_artist_id,
+            isrc,
+            0.0,
+            True,
+        )
         add_track_sync_event(db, spid, sptitle, spart, tidal_id, tidal_title, tidal_artist, isrc, "manual")
         delete_pending_track(db, pending_id)
     return JSONResponse({"status": "ok"})

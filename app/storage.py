@@ -65,9 +65,11 @@ class TrackMap(Base):
     spotify_id = Column(String(64), primary_key=True)
     spotify_title = Column(String(512), nullable=False)
     spotify_artist = Column(String(512), nullable=False)
+    spotify_artist_id = Column(String(64), nullable=True)
     tidal_id = Column(String(64), nullable=True)
     tidal_title = Column(String(512), nullable=True)
     tidal_artist = Column(String(512), nullable=True)
+    tidal_artist_id = Column(String(64), nullable=True)
     isrc = Column(String(32), nullable=True)
     confidence = Column(Float, default=0.0)
     resolved = Column(Boolean, default=False)
@@ -114,6 +116,18 @@ class TrackSyncEvent(Base):
 
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
+    # Lightweight migrations for SQLite: add missing columns to track_map
+    try:
+        with engine.connect() as conn:
+            res = conn.exec_driver_sql("PRAGMA table_info('track_map')")
+            cols = {row[1] for row in res.fetchall()}  # type: ignore[index]
+            if 'spotify_artist_id' not in cols:
+                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN spotify_artist_id VARCHAR(64)")
+            if 'tidal_artist_id' not in cols:
+                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN tidal_artist_id VARCHAR(64)")
+    except Exception:
+        # Best-effort; if migration fails, app still runs without new columns
+        pass
 
 
 def get_db():
@@ -231,9 +245,11 @@ def upsert_track_map(
     spotify_id: str,
     spotify_title: str,
     spotify_artist: str,
+    spotify_artist_id: Optional[str],
     tidal_id: Optional[str],
     tidal_title: Optional[str],
     tidal_artist: Optional[str],
+    tidal_artist_id: Optional[str],
     isrc: Optional[str],
     confidence: float,
     resolved: bool,
@@ -245,6 +261,8 @@ def upsert_track_map(
     m.tidal_id = tidal_id  # type: ignore[assignment]
     m.tidal_title = tidal_title  # type: ignore[assignment]
     m.tidal_artist = tidal_artist  # type: ignore[assignment]
+    m.spotify_artist_id = spotify_artist_id  # type: ignore[assignment]
+    m.tidal_artist_id = tidal_artist_id  # type: ignore[assignment]
     m.isrc = isrc  # type: ignore[assignment]
     m.confidence = confidence  # type: ignore[assignment]
     m.resolved = resolved  # type: ignore[assignment]
@@ -380,9 +398,11 @@ def export_tracks(db: OrmSession) -> List[Dict[str, Any]]:
                 "spotify_id": r.spotify_id,
                 "spotify_title": r.spotify_title,
                 "spotify_artist": r.spotify_artist,
+                "spotify_artist_id": r.spotify_artist_id,  # type: ignore[attr-defined]
                 "tidal_id": r.tidal_id,  # type: ignore[attr-defined]
                 "tidal_title": r.tidal_title,  # type: ignore[attr-defined]
                 "tidal_artist": r.tidal_artist,  # type: ignore[attr-defined]
+                "tidal_artist_id": r.tidal_artist_id,  # type: ignore[attr-defined]
                 "isrc": r.isrc,  # type: ignore[attr-defined]
                 "confidence": float(r.confidence),  # type: ignore[arg-type]
                 "resolved": bool(r.resolved),  # type: ignore[arg-type]
@@ -514,9 +534,11 @@ def list_synced_tracks(
                 "spotify_id": r.spotify_id,
                 "spotify_title": r.spotify_title,
                 "spotify_artist": r.spotify_artist,
+                "spotify_artist_id": r.spotify_artist_id,  # type: ignore[attr-defined]
                 "tidal_id": r.tidal_id,  # type: ignore[attr-defined]
                 "tidal_title": r.tidal_title,  # type: ignore[attr-defined]
                 "tidal_artist": r.tidal_artist,  # type: ignore[attr-defined]
+                "tidal_artist_id": r.tidal_artist_id,  # type: ignore[attr-defined]
                 "isrc": r.isrc,  # type: ignore[attr-defined]
                 "confidence": float(r.confidence),  # type: ignore[arg-type]
                 "resolved": bool(r.resolved),  # type: ignore[arg-type]
