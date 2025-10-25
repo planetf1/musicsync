@@ -85,6 +85,33 @@ class PendingTrackResolution(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+# --- Sync Events (audit/backup) ---
+
+class ArtistSyncEvent(Base):
+    __tablename__ = "artist_sync_event"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    spotify_id = Column(String(64), nullable=False)
+    spotify_name = Column(String(255), nullable=False)
+    tidal_id = Column(String(64), nullable=False)
+    tidal_name = Column(String(255), nullable=False)
+    source = Column(String(16), nullable=False)  # 'auto' | 'manual'
+    synced_at = Column(DateTime, default=datetime.utcnow)
+
+
+class TrackSyncEvent(Base):
+    __tablename__ = "track_sync_event"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    spotify_id = Column(String(64), nullable=False)
+    spotify_title = Column(String(512), nullable=False)
+    spotify_artist = Column(String(512), nullable=False)
+    tidal_id = Column(String(64), nullable=False)
+    tidal_title = Column(String(512), nullable=False)
+    tidal_artist = Column(String(512), nullable=False)
+    isrc = Column(String(32), nullable=True)
+    source = Column(String(16), nullable=False)  # 'auto' | 'manual'
+    synced_at = Column(DateTime, default=datetime.utcnow)
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
 
@@ -274,3 +301,92 @@ def cleanup_pending_tracks_for_resolved(db: OrmSession) -> int:
     deleted = db.query(PendingTrackResolution).filter(PendingTrackResolution.spotify_id.in_(subq)).delete(synchronize_session=False)
     db.commit()
     return int(deleted or 0)
+
+
+# Event helpers
+
+def add_artist_sync_event(
+    db: OrmSession,
+    spotify_id: str,
+    spotify_name: str,
+    tidal_id: str,
+    tidal_name: str,
+    source: str,
+) -> None:
+    db.add(
+        ArtistSyncEvent(
+            spotify_id=spotify_id,
+            spotify_name=spotify_name,
+            tidal_id=tidal_id,
+            tidal_name=tidal_name,
+            source=source,
+        )
+    )
+    db.commit()
+
+
+def add_track_sync_event(
+    db: OrmSession,
+    spotify_id: str,
+    spotify_title: str,
+    spotify_artist: str,
+    tidal_id: str,
+    tidal_title: str,
+    tidal_artist: str,
+    isrc: Optional[str],
+    source: str,
+) -> None:
+    db.add(
+        TrackSyncEvent(
+            spotify_id=spotify_id,
+            spotify_title=spotify_title,
+            spotify_artist=spotify_artist,
+            tidal_id=tidal_id,
+            tidal_title=tidal_title,
+            tidal_artist=tidal_artist,
+            isrc=isrc,
+            source=source,
+        )
+    )
+    db.commit()
+
+
+# Export helpers (for backup)
+
+def export_artists(db: OrmSession) -> List[Dict[str, Any]]:
+    rows = db.query(ArtistMap).all()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "spotify_id": r.spotify_id,
+                "spotify_name": r.spotify_name,
+                "tidal_id": r.tidal_id,  # type: ignore[attr-defined]
+                "tidal_name": r.tidal_name,  # type: ignore[attr-defined]
+                "confidence": float(r.confidence),  # type: ignore[arg-type]
+                "resolved": bool(r.resolved),  # type: ignore[arg-type]
+                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
+            }
+        )
+    return out
+
+
+def export_tracks(db: OrmSession) -> List[Dict[str, Any]]:
+    rows = db.query(TrackMap).all()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "spotify_id": r.spotify_id,
+                "spotify_title": r.spotify_title,
+                "spotify_artist": r.spotify_artist,
+                "tidal_id": r.tidal_id,  # type: ignore[attr-defined]
+                "tidal_title": r.tidal_title,  # type: ignore[attr-defined]
+                "tidal_artist": r.tidal_artist,  # type: ignore[attr-defined]
+                "isrc": r.isrc,  # type: ignore[attr-defined]
+                "confidence": float(r.confidence),  # type: ignore[arg-type]
+                "resolved": bool(r.resolved),  # type: ignore[arg-type]
+                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
+            }
+        )
+    return out

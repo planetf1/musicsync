@@ -29,6 +29,10 @@ from .storage import (
     delete_pending_track,
     delete_pending_track_by_spotify_id,
     cleanup_pending_tracks_for_resolved,
+    add_artist_sync_event,
+    add_track_sync_event,
+    export_artists,
+    export_tracks,
 )
 from .spotify_client import get_authorize_url, exchange_code_for_token, get_spotify_client
 from .tidal_client import (
@@ -505,6 +509,7 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
                         upsert_artist_map(db, sp_id, name, tid, str(top["name"]), float(top["score"]), True)
                         # Remove any stale pending entries for this artist now that it's resolved
                         delete_pending_by_spotify_id(db, sp_id)
+                        add_artist_sync_event(db, sp_id, name, tid, str(top["name"]), "auto")
                     _log.info(f"[job {job_id}] Auto-matched '{name}' -> '{top['name']}' (score {top['score']:.0f})")
                     auto_matched += 1
                 else:
@@ -578,6 +583,7 @@ async def resolve_pending(pending_id: int, tidal_id: str = Form(...), tidal_name
             except Exception:
                 pass
         upsert_artist_map(db, sp_id, sp_name, tidal_id, tidal_name, 0.0, True)
+        add_artist_sync_event(db, sp_id, sp_name, tidal_id, tidal_name, "manual")
         delete_pending(db, pending_id)
     return JSONResponse({"status": "ok"})
 
@@ -719,6 +725,7 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
                     with SessionLocal() as db:
                         upsert_track_map(db, spid, title, artist, tid, top.get("title"), (top.get("artists") or [""])[0] if isinstance(top.get("artists"), list) else top.get("artist"), isrc, float(top.get("score", 0.0)), True)
                         delete_pending_track_by_spotify_id(db, spid)
+                        add_track_sync_event(db, spid, title, artist, tid, str(top.get("title") or ""), str(((top.get("artists") or [""])[0] if isinstance(top.get("artists"), list) else (top.get("artist") or ""))), isrc, "auto")
                     auto_matched += 1
                 else:
                     with SessionLocal() as db:
@@ -787,5 +794,20 @@ async def resolve_track(pending_id: int, tidal_id: str = Form(...), tidal_title:
             except Exception:
                 pass
         upsert_track_map(db, spid, sptitle, spart, tidal_id, tidal_title, tidal_artist, isrc, 0.0, True)
+        add_track_sync_event(db, spid, sptitle, spart, tidal_id, tidal_title, tidal_artist, isrc, "manual")
         delete_pending_track(db, pending_id)
     return JSONResponse({"status": "ok"})
+
+
+@app.get("/backup/artists")
+async def backup_artists():
+    with SessionLocal() as db:
+        data = export_artists(db)
+    return JSONResponse(data)
+
+
+@app.get("/backup/tracks")
+async def backup_tracks():
+    with SessionLocal() as db:
+        data = export_tracks(db)
+    return JSONResponse(data)
