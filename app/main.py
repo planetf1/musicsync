@@ -90,6 +90,72 @@ if root_logger.level > logging.INFO:
     root_logger.setLevel(logging.INFO)
 
 
+def _safe_int_ids(ids: list[str]) -> list[int]:
+    out: list[int] = []
+    for x in ids:
+        try:
+            out.append(int(x))
+        except Exception:
+            # ignore ids that cannot be parsed to int
+            pass
+    return out
+
+
+def _tidal_playlist_add_with_fallbacks(playlist_obj: Any, ids: list[str]) -> int:
+    """Try multiple tidalapi Playlist.add call signatures; return count successfully added.
+
+    Attempts with int IDs and string IDs, with/without position. If all chunk attempts fail,
+    falls back to per-item adds with the same strategy. Returns the number of attempted items
+    that did not raise an exception (may overcount if API silently de-duplicates).
+    """
+    add_method = getattr(playlist_obj, "add", None)
+    if not callable(add_method):
+        return 0
+    pos_raw = getattr(playlist_obj, "num_tracks", None)
+    pos = pos_raw if isinstance(pos_raw, int) else -1
+    ids_int = _safe_int_ids(ids)
+    strategies: list[tuple[list[Any], bool]] = []
+    if ids_int:
+        strategies.append((ids_int, True))
+        strategies.append((ids_int, False))
+    strategies.append((ids, True))
+    strategies.append((ids, False))
+    # Try chunk calls
+    for payload, with_pos in strategies:
+        try:
+            if with_pos and pos is not None and pos >= 0:
+                add_method(payload, position=pos)
+            else:
+                add_method(payload)
+            return len(ids)
+        except Exception:
+            continue
+    # Per-item fallback
+    added = 0
+    for single in ids:
+        single_int = _safe_int_ids([single])
+        attempts: list[tuple[list[Any], bool]] = []
+        if single_int:
+            attempts.append((single_int, True))
+            attempts.append((single_int, False))
+        attempts.append(([single], True))
+        attempts.append(([single], False))
+        success = False
+        for payload, with_pos in attempts:
+            try:
+                if with_pos and pos is not None and pos >= 0:
+                    add_method(payload, position=pos)
+                else:
+                    add_method(payload)
+                success = True
+                break
+            except Exception:
+                continue
+        if success:
+            added += 1
+    return added
+
+
 def _norm_artist_name(s: str) -> str:
     """Normalize artist names for comparison: strip diacritics, casefold, replace symbols, collapse spaces."""
     if not s:
@@ -1123,31 +1189,67 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
 
                 # Add any missing to the playlist, skipping duplicates
                 to_add_final: list[str] = [tid for tid in tidal_to_add_ordered if tid not in existing_ids]
+                _log.info(
+                    "[job %s] Playlist '%s' (%s): mapped=%d existing_on_tidal=%d to_add=%d",
+                    job_id,
+                    sp_pl_name,
+                    tidal_pl_id,
+                    len(tidal_to_add_ordered),
+                    len(existing_ids),
+                    len(to_add_final),
+                )
+
+                added_count = 0
                 if to_add_final:
-                    did_modify = True
-                # Chunk adds for API limits
-                add_method = getattr(tidal_playlist_obj, "add", None)
-                if to_add_final and callable(add_method):
-                    try:
-                        pos = (
-                            tidal_playlist_obj.num_tracks
-                            if getattr(tidal_playlist_obj, "num_tracks", None) is not None
-                            else -1
-                        )
-                    except Exception:
-                        pos = -1
+                    # chunk in 100s
                     i = 0
                     while i < len(to_add_final):
                         chunk = to_add_final[i : i + 100]
-                        try:
-                            add_method(chunk, allow_duplicates=False, position=pos)
-                        except Exception:
-                            for single in chunk:
-                                try:
-                                    add_method([single], allow_duplicates=False, position=pos)
-                                except Exception:
-                                    pass
+                        added_count += _tidal_playlist_add_with_fallbacks(tidal_playlist_obj, chunk)
                         i += len(chunk)
+                _log.info(
+                    "[job %s] Playlist '%s' (%s): added_to_tidal=%d",
+                    job_id,
+                    sp_pl_name,
+                    tidal_pl_id,
+                    added_count,
+                )
+                if added_count > 0:
+                    did_modify = True
+
+                # Second-pass reconciliation: re-fetch playlist tracks and retry missing ones once
+                try:
+                    refreshed_existing: set[str] = set()
+                    off_chk = 0
+                    while True:
+                        chunk_chk = tidal_playlist_obj.tracks(limit=100, offset=off_chk)
+                        if not chunk_chk:
+                            break
+                        for tr in chunk_chk:
+                            refreshed_existing.add(str(getattr(tr, "id", "")))
+                        if len(chunk_chk) < 100:
+                            break
+                        off_chk += len(chunk_chk)
+                except Exception:
+                    refreshed_existing = existing_ids
+
+                missing_after: list[str] = [tid for tid in tidal_to_add_ordered if tid not in refreshed_existing]
+                if missing_after:
+                    _log.info(
+                        "[job %s] Playlist '%s' (%s): retrying missing=%d",
+                        job_id,
+                        sp_pl_name,
+                        tidal_pl_id,
+                        len(missing_after),
+                    )
+                    j = 0
+                    retry_added = 0
+                    while j < len(missing_after):
+                        chunk2 = missing_after[j : j + 100]
+                        retry_added += _tidal_playlist_add_with_fallbacks(tidal_playlist_obj, chunk2)
+                        j += len(chunk2)
+                    if retry_added > 0:
+                        did_modify = True
 
                 # Count as updated only if a pre-existing TIDAL playlist actually changed
                 if preexisting and did_modify:
