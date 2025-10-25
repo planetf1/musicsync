@@ -39,6 +39,8 @@ class ArtistMap(Base):
     confidence = Column(Float, default=0.0)
     resolved = Column(Boolean, default=False)
     last_synced_at = Column(DateTime, nullable=True)
+    # JSON-encoded list of Spotify genres for the artist (simple list[str])
+    genres_json = Column(Text, nullable=True)
 
 
 class PendingResolution(Base):
@@ -158,6 +160,14 @@ def init_db() -> None:
                 conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN spotify_duration INTEGER")
             if 'tidal_duration' not in cols:
                 conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN tidal_duration INTEGER")
+            # Ensure artist_map has genres_json column
+            res_art = conn.exec_driver_sql("PRAGMA table_info('artist_map')")
+            art_cols = {row[1] for row in res_art.fetchall()}  # type: ignore[index]
+            if 'genres_json' not in art_cols:
+                try:
+                    conn.exec_driver_sql("ALTER TABLE artist_map ADD COLUMN genres_json TEXT")
+                except Exception:
+                    pass
             # Ensure playlist_map table exists
             res2 = conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table' AND name='playlist_map'")
             if not res2.fetchall():
@@ -226,6 +236,23 @@ def upsert_artist_map(
     m.confidence = confidence  # type: ignore[assignment]
     m.resolved = resolved  # type: ignore[assignment]
     m.last_synced_at = datetime.utcnow() if tidal_id else None  # type: ignore[assignment]
+    db.commit()
+
+
+def update_artist_genres(db: OrmSession, spotify_id: str, genres: Optional[List[str]]) -> None:
+    """Update stored genres for a Spotify artist.
+
+    Genres are stored as a JSON-encoded list on ArtistMap.genres_json. This does not
+    alter match status; it's safe to call independently of syncing.
+    """
+    m = db.get(ArtistMap, spotify_id)
+    if not m:
+        return
+    try:
+        payload = json.dumps(list(genres or []))
+    except Exception:
+        payload = json.dumps([])
+    m.genres_json = payload  # type: ignore[assignment]
     db.commit()
 
 
@@ -556,12 +583,17 @@ def export_artists(db: OrmSession) -> List[Dict[str, Any]]:
     rows = db.query(ArtistMap).all()
     out: List[Dict[str, Any]] = []
     for r in rows:
+        try:
+            genres = json.loads(str(getattr(r, "genres_json", "") or "[]"))
+        except Exception:
+            genres = []
         out.append(
             {
                 "spotify_id": r.spotify_id,
                 "spotify_name": r.spotify_name,
                 "tidal_id": r.tidal_id,  # type: ignore[attr-defined]
                 "tidal_name": r.tidal_name,  # type: ignore[attr-defined]
+                "genres": genres,
                 "confidence": float(r.confidence),  # type: ignore[arg-type]
                 "resolved": bool(r.resolved),  # type: ignore[arg-type]
                 "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
@@ -617,6 +649,7 @@ def list_synced_artists(
     db: OrmSession,
     *,
     search: Optional[str] = None,
+    genre: Optional[str] = None,
     sort: str = "last_synced_at",
     order: str = "desc",
     page: int = 1,
@@ -635,6 +668,10 @@ def list_synced_artists(
                 func.lower(ArtistMap.tidal_id).like(s),
             )
         )
+    if genre:
+        # crude filter using LIKE on the JSON text
+        g = f"%{genre.lower()}%"
+        q = q.filter(func.lower(ArtistMap.genres_json).like(g))
 
     total = q.count()
 
@@ -645,39 +682,109 @@ def list_synced_artists(
         "tidal_name": ArtistMap.tidal_name,
         "confidence": ArtistMap.confidence,
     }
-    col = sort_map.get(sort, ArtistMap.last_synced_at)
-    if order.lower() == "asc":
-        q = q.order_by(col.asc().nullslast())
+    in_memory_sort = False
+    if sort == "genre":
+        # We'll sort in memory by first genre (case-insensitive)
+        in_memory_sort = True
     else:
-        q = q.order_by(col.desc().nullslast())
+        col = sort_map.get(sort, ArtistMap.last_synced_at)
+        if order.lower() == "asc":
+            q = q.order_by(col.asc().nullslast())
+        else:
+            q = q.order_by(col.desc().nullslast())
 
-    # Pagination
-    if page_size == 0:
-        # 'all' requested: do not apply pagination
-        pass
+    # Pagination and fetching
+    if in_memory_sort:
+        rows = q.all()
     else:
-        if page < 1:
-            page = 1
-        if page_size < 1:
-            page_size = 25
-        offset = (page - 1) * page_size
-        q = q.offset(offset).limit(page_size)
-
-    rows = q.all()
+        if page_size == 0:
+            rows = q.all()
+        else:
+            if page < 1:
+                page = 1
+            if page_size < 1:
+                page_size = 25
+            offset = (page - 1) * page_size
+            rows = q.offset(offset).limit(page_size).all()
     out: List[Dict[str, Any]] = []
+    # Build output with genres parsed
+    enriched: List[Dict[str, Any]] = []
     for r in rows:
-        out.append(
+        try:
+            genres = json.loads(str(getattr(r, "genres_json", "") or "[]"))
+        except Exception:
+            genres = []
+        enriched.append(
             {
                 "spotify_id": r.spotify_id,
                 "spotify_name": r.spotify_name,
                 "tidal_id": r.tidal_id,  # type: ignore[attr-defined]
                 "tidal_name": r.tidal_name,  # type: ignore[attr-defined]
+                "genres": genres,
                 "confidence": float(r.confidence),  # type: ignore[arg-type]
                 "resolved": bool(r.resolved),  # type: ignore[arg-type]
                 "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
             }
         )
+    # If in-memory sort by genre requested, apply now and paginate
+    if in_memory_sort:
+        def gkey(item: Dict[str, Any]) -> str:
+            if item.get("genres"):
+                return str(item["genres"][0]).lower()
+            return "~"  # tilde sorts after letters
+        enriched.sort(key=gkey, reverse=(order.lower() == "desc"))
+        if page_size != 0:
+            if page < 1:
+                page = 1
+            if page_size < 1:
+                page_size = 25
+            start = (page - 1) * page_size
+            end = start + page_size
+            enriched = enriched[start:end]
+    out = enriched
     return out, total
+
+
+def list_genre_counts(
+    db: OrmSession,
+    *,
+    search: Optional[str] = None,
+) -> List[Tuple[str, int]]:
+    """Compute aggregated genre counts across synced artists.
+
+    Applies the same text search filter as list_synced_artists when provided.
+    Returns a list of (genre, count) sorted by count desc then genre asc.
+    """
+    from sqlalchemy import func, or_
+    q = db.query(ArtistMap).filter(ArtistMap.tidal_id.isnot(None))
+    if search:
+        s = f"%{search.lower()}%"
+        q = q.filter(
+            or_(
+                func.lower(ArtistMap.spotify_name).like(s),
+                func.lower(ArtistMap.tidal_name).like(s),
+                func.lower(ArtistMap.spotify_id).like(s),
+                func.lower(ArtistMap.tidal_id).like(s),
+            )
+        )
+    rows = q.all()
+    counts: Dict[str, int] = {}
+    for r in rows:
+        try:
+            genres = json.loads(str(getattr(r, "genres_json", "") or "[]"))
+        except Exception:
+            genres = []
+        for g in genres:
+            try:
+                key = str(g).strip()
+            except Exception:
+                continue
+            if not key:
+                continue
+            counts[key] = counts.get(key, 0) + 1
+    # Sort by count desc, then name asc
+    items = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0].lower()))
+    return items
 
 
 def list_synced_tracks(

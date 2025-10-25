@@ -2,8 +2,25 @@
 {% block content %}
 <section>
   <h2>Library — Artists</h2>
+  {% if genre_counts and genre_counts|length > 0 %}
+  <div class="card" style="margin:10px 0; padding:10px;">
+    <strong>Top genres</strong>
+    <div style="display:flex; flex-wrap: wrap; gap:6px; margin-top:6px;">
+      {% set page_size_param = 'all' if page_size == 0 else page_size %}
+      {% for g, c in genre_counts %}
+        <a class="btn" href="/library/artists?q={{ q }}&genre={{ g }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">{{ g }} ({{ c }})</a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  <div style="margin:10px 0; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+    <button id="refreshGenresBtn" class="btn" type="button">Refresh Genres</button>
+    <label><input id="missingOnlyChk" type="checkbox" checked /> Missing only</label>
+    <span id="refreshStatus" style="opacity:0.8"></span>
+  </div>
   <form method="get" action="/library/artists" style="margin-bottom:10px; display:flex; gap:8px; align-items:center; flex-wrap: wrap;">
     <input type="text" name="q" value="{{ q }}" placeholder="Search artists…" />
+    <input type="text" name="genre" value="{{ genre }}" placeholder="Filter by genre…" />
     <input type="hidden" name="sort" value="{{ sort }}" />
     <input type="hidden" name="order" value="{{ order }}" />
     {% set sizes = [10,25,100,250,1000,2500] %}
@@ -15,7 +32,7 @@
       <option value="all" {% if page_size == 0 %}selected{% endif %}>all</option>
     </select>
     <button class="btn" type="submit">Apply</button>
-    {% if q %}
+    {% if q or genre %}
     <a class="btn" href="/library/artists">Clear</a>
     {% endif %}
   </form>
@@ -29,10 +46,11 @@
         <tr>
           {% set next_order = 'asc' if order=='desc' else 'desc' %}
           {% set page_size_param = 'all' if page_size == 0 else page_size %}
-          <th><a href="/library/artists?sort=last_synced_at&order={{ next_order if sort=='last_synced_at' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}">Last Synced{% if sort=='last_synced_at' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
-          <th><a href="/library/artists?sort=spotify_name&order={{ next_order if sort=='spotify_name' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Artist{% if sort=='spotify_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
-          <th><a href="/library/artists?sort=tidal_name&order={{ next_order if sort=='tidal_name' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Artist{% if sort=='tidal_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
-          <th><a href="/library/artists?sort=confidence&order={{ next_order if sort=='confidence' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}">Confidence{% if sort=='confidence' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/artists?sort=last_synced_at&order={{ next_order if sort=='last_synced_at' else 'desc' }}&q={{ q }}&genre={{ genre }}&page_size={{ page_size_param }}">Last Synced{% if sort=='last_synced_at' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/artists?sort=spotify_name&order={{ next_order if sort=='spotify_name' else 'asc' }}&q={{ q }}&genre={{ genre }}&page_size={{ page_size_param }}">Spotify Artist{% if sort=='spotify_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/artists?sort=tidal_name&order={{ next_order if sort=='tidal_name' else 'asc' }}&q={{ q }}&genre={{ genre }}&page_size={{ page_size_param }}">TIDAL Artist{% if sort=='tidal_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/artists?sort=confidence&order={{ next_order if sort=='confidence' else 'desc' }}&q={{ q }}&genre={{ genre }}&page_size={{ page_size_param }}">Confidence{% if sort=='confidence' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/artists?sort=genre&order={{ next_order if sort=='genre' else 'asc' }}&q={{ q }}&genre={{ genre }}&page_size={{ page_size_param }}">Genres{% if sort=='genre' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
         </tr>
       </thead>
       <tbody>
@@ -48,6 +66,13 @@
               {% endif %}
             </td>
             <td>{{ '%.0f'|format(it.confidence or 0) }}</td>
+            <td>
+              {% if it.genres and it.genres|length > 0 %}
+                {{ it.genres | join(', ') }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
           </tr>
         {% endfor %}
       </tbody>
@@ -58,24 +83,62 @@
     {% set next_page = page + 1 %}
     {% set page_size_param = 'all' if page_size == 0 else page_size %}
     <span>Page {{ page }} of {{ pages }}</span>
-    <a class="btn" href="/library/artists?page={{ prev_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}" {% if page <= 1 %}style="pointer-events:none; opacity:0.5"{% endif %}>Prev</a>
+    <a class="btn" href="/library/artists?page={{ prev_page }}&q={{ q }}&genre={{ genre }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}" {% if page <= 1 %}style="pointer-events:none; opacity:0.5"{% endif %}>Prev</a>
     {# numbered pages #}
     {% set window = 2 %}
     {% set start = 1 if pages <= 10 else [1, page - window] | max %}
     {% set end = pages if pages <= 10 else [pages, page + window] | min %}
     {% if start > 1 %}
-      <a class="btn" href="/library/artists?page=1&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">1</a>
+      <a class="btn" href="/library/artists?page=1&q={{ q }}&genre={{ genre }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">1</a>
       {% if start > 2 %}<span>…</span>{% endif %}
     {% endif %}
     {% for pnum in range(start, end + 1) %}
-      <a class="btn{% if pnum == page %} secondary{% endif %}" href="/library/artists?page={{ pnum }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">{{ pnum }}</a>
+      <a class="btn{% if pnum == page %} secondary{% endif %}" href="/library/artists?page={{ pnum }}&q={{ q }}&genre={{ genre }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">{{ pnum }}</a>
     {% endfor %}
     {% if end < pages %}
       {% if end < pages - 1 %}<span>…</span>{% endif %}
-      <a class="btn" href="/library/artists?page={{ pages }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">{{ pages }}</a>
+      <a class="btn" href="/library/artists?page={{ pages }}&q={{ q }}&genre={{ genre }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">{{ pages }}</a>
     {% endif %}
-    <a class="btn" href="/library/artists?page={{ next_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}" {% if page >= pages %}style="pointer-events:none; opacity:0.5"{% endif %}>Next</a>
+    <a class="btn" href="/library/artists?page={{ next_page }}&q={{ q }}&genre={{ genre }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}" {% if page >= pages %}style="pointer-events:none; opacity:0.5"{% endif %}>Next</a>
   </div>
   {% endif %}
 </section>
+<script>
+  (function(){
+    const btn = document.getElementById('refreshGenresBtn');
+    const chk = document.getElementById('missingOnlyChk');
+    const out = document.getElementById('refreshStatus');
+    let timer = null;
+    async function poll(jobId){
+      try{
+        const r = await fetch(`/genres/refresh/status?job_id=${encodeURIComponent(jobId)}`);
+        if(!r.ok){ out.textContent = 'Refresh: status error'; return; }
+        const data = await r.json();
+        const { state, processed, total, updated, skipped } = data;
+        out.textContent = `Refresh: ${state} ${processed||0}/${total||0} (updated ${updated||0}, skipped ${skipped||0})`;
+        if(state === 'done' || state === 'error'){
+          if(timer){ clearInterval(timer); timer = null; }
+          if(state === 'done'){
+            // give a moment then reload to show new genres
+            setTimeout(()=>{ window.location.reload(); }, 1200);
+          }
+        }
+      }catch(e){ out.textContent = 'Refresh: network error'; }
+    }
+    btn?.addEventListener('click', async ()=>{
+      try{
+        const missingOnly = chk?.checked ? '1' : '0';
+        out.textContent = 'Starting…';
+        const r = await fetch(`/genres/refresh/start?missing_only=${missingOnly}`, { method: 'POST' });
+        if(!r.ok){ out.textContent = 'Failed to start refresh'; return; }
+        const data = await r.json();
+        const jobId = data.job_id;
+        out.textContent = 'Running…';
+        if(timer){ clearInterval(timer); timer = null; }
+        timer = setInterval(()=>poll(jobId), 1500);
+        poll(jobId);
+      }catch(e){ out.textContent = 'Failed to start refresh'; }
+    });
+  })();
+</script>
 {% endblock %}

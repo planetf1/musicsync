@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import List, Dict, Optional, Any
+import json
 import logging
 import threading
 import uuid
@@ -46,6 +47,9 @@ from .storage import (
     get_playlist_map,
     replace_playlist_tracks,
     list_playlist_tracks,
+    update_artist_genres,
+    list_genre_counts,
+    ArtistMap,
 )
 from .spotify_client import get_authorize_url, exchange_code_for_token, get_spotify_client
 from .tidal_client import (
@@ -470,6 +474,27 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
 
         favorites = _tidal_favorite_artists_set(sess)
 
+        # Prefetch Spotify genres in batches (best-effort)
+        sp_genres: dict[str, list[str]] = {}
+        try:
+            ids = [a["id"] for a in artists]
+            i = 0
+            while i < len(ids):
+                chunk = ids[i:i+50]
+                try:
+                    res = sp.artists(chunk) or {}
+                    arts = res.get("artists") or []
+                    for ar in arts:
+                        gid = ar.get("id")
+                        gens = ar.get("genres") or []
+                        if gid:
+                            sp_genres[str(gid)] = [str(g) for g in gens if isinstance(g, str)]
+                except Exception:
+                    pass
+                i += 50
+        except Exception:
+            sp_genres = {}
+
         # Proactively clear any stale pending entries that are already resolved
         with SessionLocal() as db:
             removed = cleanup_pending_for_resolved(db)
@@ -527,6 +552,9 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
                         favorites.add(tid)
                     with SessionLocal() as db:
                         upsert_artist_map(db, sp_id, name, tid, str(top["name"]), float(top["score"]), True)
+                        # Update genres if known
+                        if sp_genres.get(sp_id):
+                            update_artist_genres(db, sp_id, sp_genres.get(sp_id))
                         # Remove any stale pending entries for this artist now that it's resolved
                         delete_pending_by_spotify_id(db, sp_id)
                         add_artist_sync_event(db, sp_id, name, tid, str(top["name"]), "auto")
@@ -536,6 +564,9 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
                     with SessionLocal() as db:
                         add_pending_resolution(db, sp_id, name, ranked[:10])
                         upsert_artist_map(db, sp_id, name, None, None, float(ranked[0]["score"]) if ranked else 0.0, False)
+                        # Still update genres even if pending; useful for browsing
+                        if sp_genres.get(sp_id):
+                            update_artist_genres(db, sp_id, sp_genres.get(sp_id))
                     pending += 1
             except Exception as e:
                 _log.warning(f"[job {job_id}] Error processing artist '{name}': {e}")
@@ -1259,7 +1290,7 @@ async def export_any(kind: str, format: str = "json", download: bool = False):
     with SessionLocal() as db:
         if kind == "artists":
             rows = export_artists(db)
-            headers = ["spotify_id", "spotify_name", "tidal_id", "tidal_name", "confidence", "resolved", "last_synced_at"]
+            headers = ["spotify_id", "spotify_name", "tidal_id", "tidal_name", "genres", "confidence", "resolved", "last_synced_at"]
         elif kind == "tracks":
             rows = export_tracks(db)
             headers = [
@@ -1308,6 +1339,7 @@ async def export_any(kind: str, format: str = "json", download: bool = False):
 async def library_artists(request: Request):
     # Parse query params
     q = request.query_params.get("q") or None
+    genre = request.query_params.get("genre") or None
     sort = request.query_params.get("sort") or "last_synced_at"
     order = request.query_params.get("order") or "desc"
     try:
@@ -1329,11 +1361,14 @@ async def library_artists(request: Request):
         items, total = list_synced_artists(
             db,
             search=q,
+            genre=genre,
             sort=sort,
             order=order,
             page=page,
             page_size=page_size,
         )
+        # Compute top genres (respecting search filter only)
+        top_genres = list_genre_counts(db, search=q)[:20]
     pages = (total + page_size - 1) // page_size if page_size else 1
     if page < 1:
         page = 1
@@ -1352,8 +1387,120 @@ async def library_artists(request: Request):
             "sort": sort,
             "order": order,
             "q": q or "",
+            "genre": genre or "",
+            "genre_counts": top_genres,
         },
     )
+
+
+# ---- Refresh genres job (Spotify) ----
+
+def _run_refresh_genres_job(job_id: str, missing_only: bool = True) -> None:
+    _log.info(f"[job {job_id}] Refresh genres: start (missing_only={missing_only})")
+    _job_set(job_id, state="running", started_at=datetime.now(timezone.utc).isoformat())
+    try:
+        try:
+            sp = get_spotify_client()
+        except Exception as e:
+            _job_set(job_id, state="error", error=str(e))
+            return
+
+        with SessionLocal() as db:
+            rows = db.query(ArtistMap).all()
+            # Build list of artist ids to refresh
+            target_ids: list[str] = []
+            for r in rows:
+                try:
+                    current = getattr(r, "genres_json", None) or "[]"
+                    parsed = []
+                    try:
+                        parsed = json.loads(str(current))
+                    except Exception:
+                        parsed = []
+                    if missing_only:
+                        if not parsed:
+                            target_ids.append(str(r.spotify_id))
+                    else:
+                        target_ids.append(str(r.spotify_id))
+                except Exception:
+                    continue
+
+            total = len(target_ids)
+            processed = 0
+            updated = 0
+            skipped = 0
+            _job_set(job_id, total=total, processed=processed, updated=updated, skipped=skipped)
+
+            i = 0
+            while i < len(target_ids):
+                chunk = target_ids[i:i+50]
+                try:
+                    res = sp.artists(chunk) or {}
+                    arts = res.get("artists") or []
+                except Exception:
+                    arts = []
+                # Map id->genres
+                id_to_genres: dict[str, list[str]] = {}
+                for ar in arts:
+                    gid = str(ar.get("id")) if ar.get("id") else None
+                    gens = ar.get("genres") or []
+                    if gid:
+                        try:
+                            id_to_genres[gid] = [str(g) for g in gens if isinstance(g, str)]
+                        except Exception:
+                            id_to_genres[gid] = []
+                # Apply updates in a batch
+                for gid in chunk:
+                    gens = id_to_genres.get(gid)
+                    if gens is None:
+                        # No data returned; count as skipped
+                        skipped += 1
+                        processed += 1
+                        continue
+                    m = db.get(ArtistMap, gid)
+                    if not m:
+                        skipped += 1
+                        processed += 1
+                        continue
+                    try:
+                        m.genres_json = json.dumps(gens)  # type: ignore[assignment]
+                        updated += 1
+                    except Exception:
+                        skipped += 1
+                    processed += 1
+                try:
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                _job_set(job_id, processed=processed, updated=updated, skipped=skipped)
+                i += 50
+
+        _job_set(job_id, state="done", finished_at=datetime.now(timezone.utc).isoformat(), processed=processed, updated=updated, skipped=skipped)
+        _log.info(f"[job {job_id}] Refresh genres done. total={total} updated={updated} skipped={skipped}")
+    except Exception as e:
+        _job_set(job_id, state="error", error=str(e))
+
+
+@app.post("/genres/refresh/start")
+async def start_refresh_genres(request: Request):
+    missing_only_raw = request.query_params.get("missing_only")
+    missing_only = True
+    if missing_only_raw is not None:
+        missing_only = missing_only_raw not in ("0", "false", "False")
+    job_id = str(uuid.uuid4())
+    _job_set(job_id, state="pending", missing_only=missing_only)
+    threading.Thread(target=_run_refresh_genres_job, args=(job_id, missing_only), daemon=True).start()
+    return JSONResponse({"job_id": job_id})
+
+
+@app.get("/genres/refresh/status")
+async def refresh_genres_status(job_id: str):
+    with _jobs_lock:
+        data = _jobs.get(job_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="job not found")
+    return JSONResponse(data)
+
 
 
 @app.get("/library/tracks", response_class=HTMLResponse)
