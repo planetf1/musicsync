@@ -1511,3 +1511,23 @@ async def library_playlist_detail(spotify_id: str, request: Request):
             "q": q or "",
         },
     )
+
+
+# ---- CLI entry point for uv/pipx installed tool ----
+
+def run() -> None:
+    """Start the MusicSync FastAPI server.
+
+    Environment variables:
+    - MUSICSYNC_HOST (default 127.0.0.1)
+    - MUSICSYNC_PORT (default 8000)
+    - MUSICSYNC_RELOAD (default 1 if in development)
+    """
+    import uvicorn
+    host = os.environ.get("MUSICSYNC_HOST", "127.0.0.1")
+    try:
+        port = int(os.environ.get("MUSICSYNC_PORT", "8000"))
+    except ValueError:
+        port = 8000
+    reload_flag = os.environ.get("MUSICSYNC_RELOAD", "1") not in ("0", "false", "False")
+    uvicorn.run("app.main:app", host=host, port=port, reload=reload_flag)

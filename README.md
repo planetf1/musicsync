@@ -43,16 +43,27 @@ APP_PORT=8000
 
 ## Install
 
+Option A — with uv (recommended)
+
+```bash
+# 1) Install uv (macOS)
+brew install astral-sh/uv/uv || curl -LsSf https://astral.sh/uv/install.sh | sh
+
+# 2) Run directly with uv (no venv needed)
+uv run --with uvicorn app.main:app -- --host 127.0.0.1 --port 8000 --reload
+
+# Or install the CLI tool from this repo via uv
+uv tool install "git+https://github.com/planetf1/musicsync.git"
+musicsync  # starts the server using uvicorn
+```
+
+Option B — classic venv
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
-```
-
-## Run
-
-```bash
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 Then open:
