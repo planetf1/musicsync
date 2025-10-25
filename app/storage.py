@@ -453,12 +453,16 @@ def list_synced_artists(
         q = q.order_by(col.desc().nullslast())
 
     # Pagination
-    if page < 1:
-        page = 1
-    if page_size < 1:
-        page_size = 50
-    offset = (page - 1) * page_size
-    q = q.offset(offset).limit(page_size)
+    if page_size == 0:
+        # 'all' requested: do not apply pagination
+        pass
+    else:
+        if page < 1:
+            page = 1
+        if page_size < 1:
+            page_size = 25
+        offset = (page - 1) * page_size
+        q = q.offset(offset).limit(page_size)
 
     rows = q.all()
     out: List[Dict[str, Any]] = []
@@ -519,12 +523,16 @@ def list_synced_tracks(
     else:
         q = q.order_by(col.desc().nullslast())
 
-    if page < 1:
-        page = 1
-    if page_size < 1:
-        page_size = 50
-    offset = (page - 1) * page_size
-    q = q.offset(offset).limit(page_size)
+    if page_size == 0:
+        # 'all' requested: do not apply pagination
+        pass
+    else:
+        if page < 1:
+            page = 1
+        if page_size < 1:
+            page_size = 25
+        offset = (page - 1) * page_size
+        q = q.offset(offset).limit(page_size)
 
     rows = q.all()
     out: List[Dict[str, Any]] = []

@@ -2,12 +2,19 @@
 {% block content %}
 <section>
   <h2>Library — Tracks</h2>
-  <form method="get" action="/library/tracks" style="margin-bottom:10px; display:flex; gap:8px; align-items:center;">
+  <form method="get" action="/library/tracks" style="margin-bottom:10px; display:flex; gap:8px; align-items:center; flex-wrap: wrap;">
     <input type="text" name="q" value="{{ q }}" placeholder="Search tracks…" />
     <input type="hidden" name="sort" value="{{ sort }}" />
     <input type="hidden" name="order" value="{{ order }}" />
-    <input type="hidden" name="page_size" value="{{ page_size }}" />
-    <button class="btn" type="submit">Search</button>
+    {% set sizes = [10,25,100,250,1000,2500] %}
+    <label for="psize" style="margin-left:8px;">Page size:</label>
+    <select id="psize" name="page_size">
+      {% for s in sizes %}
+        <option value="{{ s }}" {% if page_size == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+      <option value="all" {% if page_size == 0 %}selected{% endif %}>all</option>
+    </select>
+    <button class="btn" type="submit">Apply</button>
     {% if q %}
     <a class="btn" href="/library/tracks">Clear</a>
     {% endif %}
@@ -21,11 +28,12 @@
       <thead>
         <tr>
           {% set next_order = 'asc' if order=='desc' else 'desc' %}
-          <th><a href="/library/tracks?sort=last_synced_at&order={{ next_order if sort=='last_synced_at' else 'desc' }}&q={{ q }}&page_size={{ page_size }}">Last Synced{% if sort=='last_synced_at' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
-          <th><a href="/library/tracks?sort=spotify_title&order={{ next_order if sort=='spotify_title' else 'asc' }}&q={{ q }}&page_size={{ page_size }}">Spotify Title{% if sort=='spotify_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
-          <th><a href="/library/tracks?sort=spotify_artist&order={{ next_order if sort=='spotify_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size }}">Spotify Artist{% if sort=='spotify_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
-          <th><a href="/library/tracks?sort=tidal_title&order={{ next_order if sort=='tidal_title' else 'asc' }}&q={{ q }}&page_size={{ page_size }}">TIDAL Title{% if sort=='tidal_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
-          <th><a href="/library/tracks?sort=tidal_artist&order={{ next_order if sort=='tidal_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size }}">TIDAL Artist{% if sort=='tidal_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          {% set page_size_param = 'all' if page_size == 0 else page_size %}
+          <th><a href="/library/tracks?sort=last_synced_at&order={{ next_order if sort=='last_synced_at' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}">Last Synced{% if sort=='last_synced_at' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/tracks?sort=spotify_title&order={{ next_order if sort=='spotify_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Title{% if sort=='spotify_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/tracks?sort=spotify_artist&order={{ next_order if sort=='spotify_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Artist{% if sort=='spotify_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/tracks?sort=tidal_title&order={{ next_order if sort=='tidal_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Title{% if sort=='tidal_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/tracks?sort=tidal_artist&order={{ next_order if sort=='tidal_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Artist{% if sort=='tidal_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th>ISRC</th>
           <th><a href="/library/tracks?sort=confidence&order={{ next_order if sort=='confidence' else 'desc' }}&q={{ q }}&page_size={{ page_size }}">Confidence{% if sort=='confidence' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
         </tr>
@@ -72,24 +80,25 @@
   <div class="pagination" style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap: wrap;">
     {% set prev_page = page - 1 %}
     {% set next_page = page + 1 %}
+    {% set page_size_param = 'all' if page_size == 0 else page_size %}
     <span>Page {{ page }} of {{ pages }}</span>
-    <a class="btn" href="/library/tracks?page={{ prev_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}" {% if page <= 1 %}style="pointer-events:none; opacity:0.5"{% endif %}>Prev</a>
+    <a class="btn" href="/library/tracks?page={{ prev_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}" {% if page <= 1 %}style="pointer-events:none; opacity:0.5"{% endif %}>Prev</a>
     {# numbered pages #}
     {% set window = 2 %}
     {% set start = 1 if pages <= 10 else [1, page - window] | max %}
     {% set end = pages if pages <= 10 else [pages, page + window] | min %}
     {% if start > 1 %}
-      <a class="btn" href="/library/tracks?page=1&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}">1</a>
+      <a class="btn" href="/library/tracks?page=1&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">1</a>
       {% if start > 2 %}<span>…</span>{% endif %}
     {% endif %}
     {% for pnum in range(start, end + 1) %}
-      <a class="btn{% if pnum == page %} secondary{% endif %}" href="/library/tracks?page={{ pnum }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}">{{ pnum }}</a>
+      <a class="btn{% if pnum == page %} secondary{% endif %}" href="/library/tracks?page={{ pnum }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">{{ pnum }}</a>
     {% endfor %}
     {% if end < pages %}
       {% if end < pages - 1 %}<span>…</span>{% endif %}
-      <a class="btn" href="/library/tracks?page={{ pages }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}">{{ pages }}</a>
+      <a class="btn" href="/library/tracks?page={{ pages }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">{{ pages }}</a>
     {% endif %}
-    <a class="btn" href="/library/tracks?page={{ next_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size }}" {% if page >= pages %}style="pointer-events:none; opacity:0.5"{% endif %}>Next</a>
+    <a class="btn" href="/library/tracks?page={{ next_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}" {% if page >= pages %}style="pointer-events:none; opacity:0.5"{% endif %}>Next</a>
   </div>
   {% endif %}
 </section>

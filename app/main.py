@@ -882,10 +882,16 @@ async def library_artists(request: Request):
         page = int(request.query_params.get("page") or 1)
     except ValueError:
         page = 1
-    try:
-        page_size = int(request.query_params.get("page_size") or 50)
-    except ValueError:
-        page_size = 50
+    ps_raw = request.query_params.get("page_size")
+    if ps_raw is None:
+        page_size = 25
+    elif ps_raw == "all":
+        page_size = 0
+    else:
+        try:
+            page_size = int(ps_raw)
+        except ValueError:
+            page_size = 25
 
     with SessionLocal() as db:
         items, total = list_synced_artists(
@@ -927,10 +933,16 @@ async def library_tracks(request: Request):
         page = int(request.query_params.get("page") or 1)
     except ValueError:
         page = 1
-    try:
-        page_size = int(request.query_params.get("page_size") or 50)
-    except ValueError:
-        page_size = 50
+    ps_raw = request.query_params.get("page_size")
+    if ps_raw is None:
+        page_size = 25
+    elif ps_raw == "all":
+        page_size = 0
+    else:
+        try:
+            page_size = int(ps_raw)
+        except ValueError:
+            page_size = 25
     with SessionLocal() as db:
         items, total = list_synced_tracks(
             db,
