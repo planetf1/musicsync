@@ -33,9 +33,13 @@ from .storage import (
     add_track_sync_event,
     export_artists,
     export_tracks,
+    export_playlists,
     list_synced_artists,
     list_synced_tracks,
+    list_synced_playlists,
     TrackMap,
+    upsert_playlist_map,
+    get_playlist_map,
 )
 from .spotify_client import get_authorize_url, exchange_code_for_token, get_spotify_client
 from .tidal_client import (
@@ -780,6 +784,213 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
         _job_set(job_id, state="error", error=str(e))
 
 
+def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
+    _job_set(job_id, state="running", started_at=datetime.now(timezone.utc).isoformat())
+    try:
+        try:
+            sp = get_spotify_client()
+            me = sp.me() or {}
+            my_spotify_user_id = (me.get("id") or "").strip()
+        except Exception as e:
+            _job_set(job_id, state="error", error=str(e))
+            return
+        try:
+            sess = get_tidal_session()
+        except Exception as e:
+            _job_set(job_id, state="error", error=str(e))
+            return
+
+        # Fetch user-owned Spotify playlists
+        playlists: List[Dict[str, Any]] = []
+        offset = 0
+        page_size = 50
+        while True:
+            page = sp.current_user_playlists(limit=page_size, offset=offset) or {}
+            items = page.get("items") or []
+            for pl in items:
+                owner = pl.get("owner") or {}
+                if my_spotify_user_id and (owner.get("id") or "").strip() != my_spotify_user_id:
+                    continue  # only manually created (owned) playlists
+                pid = pl.get("id")
+                name = pl.get("name")
+                if pid and name:
+                    playlists.append({"id": pid, "name": name})
+            offset += len(items)
+            if limit and len(playlists) >= limit:
+                playlists = playlists[:limit]
+                break
+            if not page.get("next"):
+                break
+
+        total = len(playlists)
+        processed = 0
+        created = 0
+        updated = 0
+        _job_set(job_id, total=total, processed=processed, created=created, updated=updated)
+        for pl in playlists:
+            sp_pl_id = pl["id"]
+            sp_pl_name = pl["name"]
+            try:
+                # Ensure we have a TIDAL playlist mapped/created
+                tidal_pl_id: Optional[str] = None
+                with SessionLocal() as db:
+                    m = get_playlist_map(db, sp_pl_id)
+                    if m and m.get("tidal_id"):
+                        tidal_pl_id = str(m["tidal_id"])
+                tidal_playlist_obj = None
+                if tidal_pl_id:
+                    from tidalapi.playlist import Playlist as TidalPlaylist
+                    try:
+                        tidal_playlist_obj = TidalPlaylist(sess, tidal_pl_id).factory()
+                    except Exception:
+                        tidal_playlist_obj = None
+                if tidal_playlist_obj is None:
+                    # Create new TIDAL playlist
+                    t_pl = sess.user.create_playlist(sp_pl_name, f"Synced from Spotify: {sp_pl_id}")
+                    tidal_pl_id = str(t_pl.id)
+                    tidal_playlist_obj = t_pl
+                    created += 1
+                else:
+                    updated += 1
+
+                # Build set of existing TIDAL track IDs in the playlist
+                existing_ids: set[str] = set()
+                try:
+                    off = 0
+                    while True:
+                        chunk = tidal_playlist_obj.tracks(limit=100, offset=off)
+                        if not chunk:
+                            break
+                        for tr in chunk:
+                            existing_ids.add(str(tr.id))
+                        if len(chunk) < 100:
+                            break
+                        off += len(chunk)
+                except Exception:
+                    pass
+
+                # Fetch Spotify playlist tracks in order
+                sp_track_ids: List[str] = []
+                sp_tracks_meta: Dict[str, Dict[str, Any]] = {}
+                off2 = 0
+                while True:
+                    page = sp.playlist_tracks(sp_pl_id, limit=100, offset=off2) or {}
+                    items = page.get("items") or []
+                    for it in items:
+                        t = it.get("track") or {}
+                        tid = t.get("id")
+                        if not tid:
+                            continue
+                        sp_track_ids.append(tid)
+                        name = t.get("name")
+                        artists = t.get("artists") or []
+                        artist_name = artists[0]["name"] if artists else ""
+                        artist_id = artists[0].get("id") if artists and isinstance(artists[0], dict) else None
+                        duration_ms = t.get("duration_ms")
+                        dur = int(duration_ms / 1000) if duration_ms else None
+                        isrc = (t.get("external_ids") or {}).get("isrc")
+                        sp_tracks_meta[tid] = {
+                            "title": name,
+                            "artist": artist_name,
+                            "artist_id": artist_id,
+                            "duration": dur,
+                            "isrc": isrc,
+                        }
+                    off2 += len(items)
+                    if not page.get("next"):
+                        break
+
+                # Map to TIDAL track IDs, using existing TrackMap or fallback matching
+                tidal_to_add_ordered: List[str] = []
+                with SessionLocal() as db:
+                    for sid in sp_track_ids:
+                        tm = db.get(TrackMap, sid)
+                        if tm and tm.tidal_id:
+                            tidal_to_add_ordered.append(str(tm.tidal_id))
+                            continue
+                        meta = sp_tracks_meta.get(sid) or {}
+                        cands = _tidal_search_tracks(sess, meta.get("title") or "", meta.get("artist") or "")
+                        ranked: List[Dict[str, Any]] = []
+                        for c in cands:
+                            score = _score_track_candidate(meta.get("title") or "", meta.get("artist") or "", meta.get("isrc"), meta.get("duration"), c)
+                            c2 = dict(c)
+                            c2["score"] = float(score)
+                            ranked.append(c2)
+                        ranked.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
+                        top = ranked[0] if ranked else None
+                        accept = False
+                        if top:
+                            if float(top.get("score", 0.0)) >= 95.0:
+                                accept = True
+                            if float(top.get("score", 0.0)) >= 900.0:
+                                accept = True
+                        if accept and top:
+                            tid = str(top["id"])
+                            t_artist_name = None
+                            t_artist_id = None
+                            t_arts = top.get("artists")
+                            if isinstance(t_arts, list) and t_arts:
+                                first = t_arts[0]
+                                if isinstance(first, dict):
+                                    t_artist_name = first.get("name")
+                                    t_artist_id = first.get("id")
+                                else:
+                                    t_artist_name = str(first)
+                            upsert_track_map(
+                                db,
+                                sid,
+                                meta.get("title") or "",
+                                meta.get("artist") or "",
+                                meta.get("artist_id"),
+                                tid,
+                                top.get("title"),
+                                t_artist_name,
+                                t_artist_id,
+                                meta.get("isrc"),
+                                float(top.get("score", 0.0)),
+                                True,
+                            )
+                            tidal_to_add_ordered.append(tid)
+                        else:
+                            # leave unmapped; could add pending resolution
+                            add_pending_track_resolution(db, sid, meta.get("title") or "", meta.get("artist") or "", meta.get("isrc"), ranked[:10])
+
+                # Add any missing to the playlist, skipping duplicates
+                to_add_final: List[str] = [tid for tid in tidal_to_add_ordered if tid not in existing_ids]
+                # Chunk adds for API limits
+                if to_add_final and hasattr(tidal_playlist_obj, "add"):
+                    try:
+                        pos = tidal_playlist_obj.num_tracks if getattr(tidal_playlist_obj, "num_tracks", None) is not None else -1
+                    except Exception:
+                        pos = -1
+                    i = 0
+                    while i < len(to_add_final):
+                        chunk = to_add_final[i:i+100]
+                        try:
+                            tidal_playlist_obj.add(chunk, allow_duplicates=False, position=pos)
+                        except Exception:
+                            for single in chunk:
+                                try:
+                                    tidal_playlist_obj.add([single], allow_duplicates=False, position=pos)
+                                except Exception:
+                                    pass
+                        i += len(chunk)
+
+                # Update mapping record
+                with SessionLocal() as db:
+                    upsert_playlist_map(db, sp_pl_id, sp_pl_name, tidal_pl_id, getattr(tidal_playlist_obj, "name", None))
+
+            except Exception:
+                pass
+            finally:
+                processed += 1
+                _job_set(job_id, processed=processed, created=created, updated=updated)
+
+        _job_set(job_id, state="done", finished_at=datetime.now(timezone.utc).isoformat(), processed=processed, created=created, updated=updated)
+    except Exception as e:
+        _job_set(job_id, state="error", error=str(e))
+
+
 @app.post("/sync/tracks/start")
 async def start_sync_tracks(request: Request):
     limit_param = request.query_params.get("limit")
@@ -795,6 +1006,28 @@ async def start_sync_tracks(request: Request):
 
 @app.get("/sync/tracks/status")
 async def sync_tracks_status(job_id: str):
+    with _jobs_lock:
+        data = _jobs.get(job_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="job not found")
+    return JSONResponse(data)
+
+
+@app.post("/sync/playlists/start")
+async def start_sync_playlists(request: Request):
+    limit_param = request.query_params.get("limit")
+    try:
+        limit = int(limit_param) if limit_param else 0
+    except ValueError:
+        limit = 0
+    job_id = str(uuid.uuid4())
+    _job_set(job_id, state="pending", limit=limit)
+    threading.Thread(target=_run_sync_playlists_job, args=(job_id, limit), daemon=True).start()
+    return JSONResponse({"job_id": job_id})
+
+
+@app.get("/sync/playlists/status")
+async def sync_playlists_status(job_id: str):
     with _jobs_lock:
         data = _jobs.get(job_id)
     if not data:
@@ -867,6 +1100,13 @@ async def backup_artists():
 async def backup_tracks():
     with SessionLocal() as db:
         data = export_tracks(db)
+    return JSONResponse(data)
+
+
+@app.get("/backup/playlists")
+async def backup_playlists():
+    with SessionLocal() as db:
+        data = export_playlists(db)
     return JSONResponse(data)
 
 
@@ -959,6 +1199,57 @@ async def library_tracks(request: Request):
         page = pages
     return templates.TemplateResponse(
         "library_tracks.html",
+        {
+            "request": request,
+            "items": items,
+            "count": len(items),
+            "total": total,
+            "page": page,
+            "pages": pages,
+            "page_size": page_size,
+            "sort": sort,
+            "order": order,
+            "q": q or "",
+        },
+    )
+
+
+@app.get("/library/playlists", response_class=HTMLResponse)
+async def library_playlists(request: Request):
+    q = request.query_params.get("q") or None
+    sort = request.query_params.get("sort") or "last_synced_at"
+    order = request.query_params.get("order") or "desc"
+    try:
+        page = int(request.query_params.get("page") or 1)
+    except ValueError:
+        page = 1
+    ps_raw = request.query_params.get("page_size")
+    if ps_raw is None:
+        page_size = 25
+    elif ps_raw == "all":
+        page_size = 0
+    else:
+        try:
+            page_size = int(ps_raw)
+        except ValueError:
+            page_size = 25
+
+    with SessionLocal() as db:
+        items, total = list_synced_playlists(
+            db,
+            search=q,
+            sort=sort,
+            order=order,
+            page=page,
+            page_size=page_size,
+        )
+    pages = (total + page_size - 1) // page_size if page_size else 1
+    if page < 1:
+        page = 1
+    if pages and page > pages:
+        page = pages
+    return templates.TemplateResponse(
+        "library_playlists.html",
         {
             "request": request,
             "items": items,

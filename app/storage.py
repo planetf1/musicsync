@@ -114,6 +114,17 @@ class TrackSyncEvent(Base):
     synced_at = Column(DateTime, default=datetime.utcnow)
 
 
+# --- Playlists ---
+
+class PlaylistMap(Base):
+    __tablename__ = "playlist_map"
+    spotify_id = Column(String(64), primary_key=True)
+    spotify_name = Column(String(512), nullable=False)
+    tidal_id = Column(String(64), nullable=True)
+    tidal_name = Column(String(512), nullable=True)
+    last_synced_at = Column(DateTime, nullable=True)
+
+
 def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     # Lightweight migrations for SQLite: add missing columns to track_map
@@ -125,6 +136,12 @@ def init_db() -> None:
                 conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN spotify_artist_id VARCHAR(64)")
             if 'tidal_artist_id' not in cols:
                 conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN tidal_artist_id VARCHAR(64)")
+            # Ensure playlist_map table exists
+            res2 = conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table' AND name='playlist_map'")
+            if not res2.fetchall():
+                conn.exec_driver_sql(
+                    "CREATE TABLE playlist_map (spotify_id VARCHAR(64) PRIMARY KEY, spotify_name VARCHAR(512) NOT NULL, tidal_id VARCHAR(64), tidal_name VARCHAR(512), last_synced_at DATETIME)"
+                )
     except Exception:
         # Best-effort; if migration fails, app still runs without new columns
         pass
@@ -369,6 +386,38 @@ def add_track_sync_event(
     db.commit()
 
 
+# Playlist helpers
+
+def upsert_playlist_map(
+    db: OrmSession,
+    spotify_id: str,
+    spotify_name: str,
+    tidal_id: str | None,
+    tidal_name: str | None,
+) -> None:
+    m = db.get(PlaylistMap, spotify_id)
+    if not m:
+        m = PlaylistMap(spotify_id=spotify_id, spotify_name=spotify_name)
+        db.add(m)
+    m.tidal_id = tidal_id  # type: ignore[assignment]
+    m.tidal_name = tidal_name  # type: ignore[assignment]
+    m.last_synced_at = datetime.utcnow() if tidal_id else None  # type: ignore[assignment]
+    db.commit()
+
+
+def get_playlist_map(db: OrmSession, spotify_id: str) -> Optional[Dict[str, Any]]:
+    m = db.get(PlaylistMap, spotify_id)
+    if not m:
+        return None
+    return {
+        "spotify_id": m.spotify_id,
+        "spotify_name": m.spotify_name,
+        "tidal_id": m.tidal_id,
+        "tidal_name": m.tidal_name,
+        "last_synced_at": m.last_synced_at.isoformat() if m.last_synced_at else None,
+    }
+
+
 # Export helpers (for backup)
 
 def export_artists(db: OrmSession) -> List[Dict[str, Any]]:
@@ -406,6 +455,22 @@ def export_tracks(db: OrmSession) -> List[Dict[str, Any]]:
                 "isrc": r.isrc,  # type: ignore[attr-defined]
                 "confidence": float(r.confidence),  # type: ignore[arg-type]
                 "resolved": bool(r.resolved),  # type: ignore[arg-type]
+                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
+            }
+        )
+    return out
+
+
+def export_playlists(db: OrmSession) -> List[Dict[str, Any]]:
+    rows = db.query(PlaylistMap).all()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "spotify_id": r.spotify_id,
+                "spotify_name": r.spotify_name,
+                "tidal_id": r.tidal_id,  # type: ignore[attr-defined]
+                "tidal_name": r.tidal_name,  # type: ignore[attr-defined]
                 "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
             }
         )
@@ -550,6 +615,67 @@ def list_synced_tracks(
                 "isrc": r.isrc,  # type: ignore[attr-defined]
                 "confidence": float(r.confidence),  # type: ignore[arg-type]
                 "resolved": bool(r.resolved),  # type: ignore[arg-type]
+                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
+            }
+        )
+    return out, total
+
+
+def list_synced_playlists(
+    db: OrmSession,
+    *,
+    search: Optional[str] = None,
+    sort: str = "last_synced_at",
+    order: str = "desc",
+    page: int = 1,
+    page_size: int = 50,
+) -> Tuple[List[Dict[str, Any]], int]:
+    from sqlalchemy import func, or_
+
+    q = db.query(PlaylistMap).filter(PlaylistMap.tidal_id.isnot(None))
+    if search:
+        s = f"%{search.lower()}%"
+        q = q.filter(
+            or_(
+                func.lower(PlaylistMap.spotify_name).like(s),
+                func.lower(PlaylistMap.tidal_name).like(s),
+                func.lower(PlaylistMap.spotify_id).like(s),
+                func.lower(PlaylistMap.tidal_id).like(s),
+            )
+        )
+
+    total = q.count()
+
+    sort_map = {
+        "last_synced_at": PlaylistMap.last_synced_at,
+        "spotify_name": PlaylistMap.spotify_name,
+        "tidal_name": PlaylistMap.tidal_name,
+    }
+    col = sort_map.get(sort, PlaylistMap.last_synced_at)
+    if order.lower() == "asc":
+        q = q.order_by(col.asc().nullslast())
+    else:
+        q = q.order_by(col.desc().nullslast())
+
+    if page_size == 0:
+        pass
+    else:
+        if page < 1:
+            page = 1
+        if page_size < 1:
+            page_size = 25
+        offset = (page - 1) * page_size
+        q = q.offset(offset).limit(page_size)
+
+    rows = q.all()
+    out: List[Dict[str, Any]] = []
+    for r in rows:
+        out.append(
+            {
+                "spotify_id": r.spotify_id,
+                "spotify_name": r.spotify_name,
+                "tidal_id": r.tidal_id,  # type: ignore[attr-defined]
+                "tidal_name": r.tidal_name,  # type: ignore[attr-defined]
                 "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
             }
         )

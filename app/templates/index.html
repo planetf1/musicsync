@@ -132,6 +132,61 @@
 
   <hr />
   <div class="actions">
+    <button id="btn-sync-playlists" class="btn" onclick="startPlaylistSync()" {% if not (spotify_ok and tidal_ok) %}disabled{% endif %}>Sync Playlists (Spotify → TIDAL)</button>
+    <div id="playlist-sync-progress" style="margin-top:8px"></div>
+    <script>
+      let playlistSyncTimer;
+      async function startPlaylistSync(){
+        const btn = document.getElementById('btn-sync-playlists');
+        const div = document.getElementById('playlist-sync-progress');
+        btn.disabled = true;
+        div.textContent = 'Starting playlist sync…';
+        try{
+          const resp = await fetch('/sync/playlists/start', {method:'POST'});
+          if(!resp.ok){ div.textContent = 'Failed to start playlist sync.'; btn.disabled = false; return; }
+          const data = await resp.json();
+          pollPlaylistSync(data.job_id);
+        }catch(e){
+          div.textContent = 'Error starting playlist sync: ' + e;
+          btn.disabled = false;
+        }
+      }
+      async function pollPlaylistSync(jobId){
+        if(playlistSyncTimer) clearInterval(playlistSyncTimer);
+        const div = document.getElementById('playlist-sync-progress');
+        const render = async () => {
+          try{
+            const r = await fetch('/sync/playlists/status?job_id='+encodeURIComponent(jobId));
+            if(!r.ok){ div.textContent = 'Playlist sync status unavailable'; return; }
+            const s = await r.json();
+            if(s.state === 'error'){
+              div.innerHTML = `<span class="status-disconnected">Error: ${s.error||'unknown'}</span>`;
+              clearInterval(playlistSyncTimer);
+              document.getElementById('btn-sync-playlists').disabled = false;
+              return;
+            }
+            const total = s.total ?? 0;
+            const processed = s.processed ?? 0;
+            const created = s.created ?? 0;
+            const updated = s.updated ?? 0;
+            if(s.state === 'done'){
+              div.innerHTML = `<span class="status-connected">Done.</span> Playlists: ${total}, created: ${created}, updated: ${updated}.`;
+              clearInterval(playlistSyncTimer);
+              document.getElementById('btn-sync-playlists').disabled = false;
+              return;
+            }
+            div.textContent = `Syncing playlists… ${processed}/${total} (created: ${created}, touched: ${updated})`;
+          }catch(e){
+            div.textContent = 'Error reading status: ' + e;
+          }
+        };
+        await render();
+        playlistSyncTimer = setInterval(render, 2000);
+      }
+    </script>
+  </div>
+  <hr />
+  <div class="actions">
     <button id="btn-sync-tracks" class="btn" onclick="startTrackSync()" {% if not (spotify_ok and tidal_ok) %}disabled{% endif %}>Sync Liked Tracks (Spotify → TIDAL)</button>
     <div id="track-sync-progress" style="margin-top:8px"></div>
     <script>
@@ -196,6 +251,7 @@
     <ul>
       <li><a href="/library/artists">View synced artists</a></li>
       <li><a href="/library/tracks">View synced tracks</a></li>
+      <li><a href="/library/playlists">View synced playlists</a></li>
     </ul>
   </section>
 </section>

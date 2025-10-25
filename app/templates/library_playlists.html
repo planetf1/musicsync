@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  <h2>Library — Playlists</h2>
+  <form method="get" action="/library/playlists" style="margin-bottom:10px; display:flex; gap:8px; align-items:center; flex-wrap: wrap;">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search playlists…" />
+    <input type="hidden" name="sort" value="{{ sort }}" />
+    <input type="hidden" name="order" value="{{ order }}" />
+    {% set sizes = [10,25,100,250,1000,2500] %}
+    <label for="psize" style="margin-left:8px;">Page size:</label>
+    <select id="psize" name="page_size">
+      {% for s in sizes %}
+        <option value="{{ s }}" {% if page_size == s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+      <option value="all" {% if page_size == 0 %}selected{% endif %}>all</option>
+    </select>
+    <button class="btn" type="submit">Apply</button>
+    {% if q %}
+    <a class="btn" href="/library/playlists">Clear</a>
+    {% endif %}
+  </form>
+  <p>Showing {{ count }} of {{ total }} playlists.</p>
+  {% if not items %}
+    <p>No synced playlists yet. Run a sync, then check back.</p>
+  {% else %}
+  <div style="overflow-x:auto">
+    <table class="table">
+      <thead>
+        <tr>
+          {% set next_order = 'asc' if order=='desc' else 'desc' %}
+          {% set page_size_param = 'all' if page_size == 0 else page_size %}
+          <th><a href="/library/playlists?sort=last_synced_at&order={{ next_order if sort=='last_synced_at' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}">Last Synced{% if sort=='last_synced_at' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/playlists?sort=spotify_name&order={{ next_order if sort=='spotify_name' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Playlist{% if sort=='spotify_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/playlists?sort=tidal_name&order={{ next_order if sort=='tidal_name' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Playlist{% if sort=='tidal_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for it in items %}
+          <tr>
+            <td>{{ it.last_synced_at or '' }}</td>
+            <td>
+              <a href="https://open.spotify.com/playlist/{{ it.spotify_id }}" target="_blank" rel="noopener">{{ it.spotify_name }}</a>
+            </td>
+            <td>
+              {% if it.tidal_id %}
+                <a href="https://tidal.com/browse/playlist/{{ it.tidal_id }}" target="_blank" rel="noopener">{{ it.tidal_name }}</a>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="pagination" style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap: wrap;">
+    {% set prev_page = page - 1 %}
+    {% set next_page = page + 1 %}
+    {% set page_size_param = 'all' if page_size == 0 else page_size %}
+    <span>Page {{ page }} of {{ pages }}</span>
+    <a class="btn" href="/library/playlists?page={{ prev_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}" {% if page <= 1 %}style="pointer-events:none; opacity:0.5"{% endif %}>Prev</a>
+    {% set window = 2 %}
+    {% set start = 1 if pages <= 10 else [1, page - window] | max %}
+    {% set end = pages if pages <= 10 else [pages, page + window] | min %}
+    {% if start > 1 %}
+      <a class="btn" href="/library/playlists?page=1&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">1</a>
+      {% if start > 2 %}<span>…</span>{% endif %}
+    {% endif %}
+    {% for pnum in range(start, end + 1) %}
+      <a class="btn{% if pnum == page %} secondary{% endif %}" href="/library/playlists?page={{ pnum }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">{{ pnum }}</a>
+    {% endfor %}
+    {% if end < pages %}
+      {% if end < pages - 1 %}<span>…</span>{% endif %}
+      <a class="btn" href="/library/playlists?page={{ pages }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">{{ pages }}</a>
+    {% endif %}
+    <a class="btn" href="/library/playlists?page={{ next_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}" {% if page >= pages %}style="pointer-events:none; opacity:0.5"{% endif %}>Next</a>
+  </div>
+  {% endif %}
+</section>
+{% endblock %}
