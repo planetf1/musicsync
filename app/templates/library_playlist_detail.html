@@ -36,6 +36,7 @@
           <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=position&order={{ next_order if sort=='position' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}"># {% if sort=='position' %}{% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=spotify_title&order={{ next_order if sort=='spotify_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Title{% if sort=='spotify_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=spotify_artist&order={{ next_order if sort=='spotify_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Artist{% if sort=='spotify_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th>Duration</th>
           <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=tidal_title&order={{ next_order if sort=='tidal_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Title{% if sort=='tidal_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=tidal_artist&order={{ next_order if sort=='tidal_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Artist{% if sort=='tidal_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
         </tr>
@@ -48,6 +49,13 @@
               <a href="https://open.spotify.com/track/{{ it.spotify_track_id }}" target="_blank" rel="noopener">{{ it.spotify_title }}</a>
             </td>
             <td>{{ it.spotify_artist }}</td>
+            <td>
+              {% if it.duration %}
+                {{ (it.duration // 60)|int }}:{{ '%02d' % (it.duration % 60) }}
+              {% else %}
+                —
+              {% endif %}
+            </td>
             <td>
               {% if it.tidal_track_id %}
                 <a href="https://tidal.com/browse/track/{{ it.tidal_track_id }}" target="_blank" rel="noopener">{{ it.tidal_title or '—' }}</a>

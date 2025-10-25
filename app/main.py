@@ -763,14 +763,44 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
                             pass
                         favorites.add(tid)
                     with SessionLocal() as db:
-                        upsert_track_map(db, spid, title, artist, s_artist_id, tid, top.get("title"), t_artist_name, t_artist_id, isrc, float(top.get("score", 0.0)), True)
+                        upsert_track_map(
+                            db,
+                            spid,
+                            title,
+                            artist,
+                            s_artist_id,
+                            tid,
+                            top.get("title"),
+                            t_artist_name,
+                            t_artist_id,
+                            isrc,
+                            dur,
+                            (top.get("duration") if isinstance(top.get("duration"), (int, float)) else None),
+                            float(top.get("score", 0.0)),
+                            True,
+                        )
                         delete_pending_track_by_spotify_id(db, spid)
                         add_track_sync_event(db, spid, title, artist, tid, str(top.get("title") or ""), str(t_artist_name or ""), isrc, "auto")
                     auto_matched += 1
                 else:
                     with SessionLocal() as db:
                         add_pending_track_resolution(db, spid, title, artist, isrc, ranked[:10])
-                        upsert_track_map(db, spid, title, artist, s_artist_id, None, None, None, None, isrc, float(ranked[0]["score"]) if ranked else 0.0, False)
+                        upsert_track_map(
+                            db,
+                            spid,
+                            title,
+                            artist,
+                            s_artist_id,
+                            None,
+                            None,
+                            None,
+                            None,
+                            isrc,
+                            dur,
+                            None,
+                            float(ranked[0]["score"]) if ranked else 0.0,
+                            False,
+                        )
                     pending += 1
             except Exception:
                 with SessionLocal() as db:
@@ -955,6 +985,8 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
                                 t_artist_name,
                                 t_artist_id,
                                 meta.get("isrc"),
+                                meta.get("duration"),
+                                (top.get("duration") if isinstance(top.get("duration"), (int, float)) else None),
                                 float(top.get("score", 0.0)),
                                 True,
                             )
@@ -1003,6 +1035,7 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
                                 "spotify_track_id": sid,
                                 "spotify_title": meta.get("title") or "",
                                 "spotify_artist": meta.get("artist") or "",
+                                "spotify_duration": meta.get("duration"),
                                 "isrc": meta.get("isrc"),
                                 "tidal_track_id": tmeta.get("tidal_id"),
                                 "tidal_title": tmeta.get("tidal_title"),
@@ -1100,6 +1133,8 @@ async def resolve_track(
         # Preserve spotify artist id if known
         existing_map = db.get(TrackMap, spid)
         s_artist_id = getattr(existing_map, "spotify_artist_id", None) if existing_map else None
+        s_dur = getattr(existing_map, "spotify_duration", None) if existing_map else None
+        t_dur = getattr(existing_map, "tidal_duration", None) if existing_map else None
         t_artist_id = tidal_artist_id or None
         upsert_track_map(
             db,
@@ -1112,6 +1147,8 @@ async def resolve_track(
             tidal_artist,
             t_artist_id,
             isrc,
+            s_dur,
+            t_dur,
             0.0,
             True,
         )

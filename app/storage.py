@@ -71,6 +71,8 @@ class TrackMap(Base):
     tidal_artist = Column(String(512), nullable=True)
     tidal_artist_id = Column(String(64), nullable=True)
     isrc = Column(String(32), nullable=True)
+    spotify_duration = Column(Integer, nullable=True)  # seconds
+    tidal_duration = Column(Integer, nullable=True)    # seconds
     confidence = Column(Float, default=0.0)
     resolved = Column(Boolean, default=False)
     last_synced_at = Column(DateTime, nullable=True)
@@ -137,6 +139,7 @@ class PlaylistTrack(Base):
     tidal_title = Column(String(512), nullable=True)
     tidal_artist = Column(String(512), nullable=True)
     isrc = Column(String(32), nullable=True)
+    spotify_duration = Column(Integer, nullable=True)  # seconds
     last_synced_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -151,12 +154,24 @@ def init_db() -> None:
                 conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN spotify_artist_id VARCHAR(64)")
             if 'tidal_artist_id' not in cols:
                 conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN tidal_artist_id VARCHAR(64)")
+            if 'spotify_duration' not in cols:
+                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN spotify_duration INTEGER")
+            if 'tidal_duration' not in cols:
+                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN tidal_duration INTEGER")
             # Ensure playlist_map table exists
             res2 = conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table' AND name='playlist_map'")
             if not res2.fetchall():
                 conn.exec_driver_sql(
                     "CREATE TABLE playlist_map (spotify_id VARCHAR(64) PRIMARY KEY, spotify_name VARCHAR(512) NOT NULL, tidal_id VARCHAR(64), tidal_name VARCHAR(512), last_synced_at DATETIME)"
                 )
+            # Ensure playlist_track table has spotify_duration
+            res3 = conn.exec_driver_sql("PRAGMA table_info('playlist_track')")
+            pcols = {row[1] for row in res3.fetchall()}  # type: ignore[index]
+            if 'spotify_duration' not in pcols:
+                try:
+                    conn.exec_driver_sql("ALTER TABLE playlist_track ADD COLUMN spotify_duration INTEGER")
+                except Exception:
+                    pass
     except Exception:
         # Best-effort; if migration fails, app still runs without new columns
         pass
@@ -283,6 +298,8 @@ def upsert_track_map(
     tidal_artist: Optional[str],
     tidal_artist_id: Optional[str],
     isrc: Optional[str],
+    spotify_duration: Optional[int],
+    tidal_duration: Optional[int],
     confidence: float,
     resolved: bool,
 ) -> None:
@@ -296,6 +313,8 @@ def upsert_track_map(
     m.spotify_artist_id = spotify_artist_id  # type: ignore[assignment]
     m.tidal_artist_id = tidal_artist_id  # type: ignore[assignment]
     m.isrc = isrc  # type: ignore[assignment]
+    m.spotify_duration = spotify_duration  # type: ignore[assignment]
+    m.tidal_duration = tidal_duration  # type: ignore[assignment]
     m.confidence = confidence  # type: ignore[assignment]
     m.resolved = resolved  # type: ignore[assignment]
     m.last_synced_at = datetime.utcnow() if tidal_id else None  # type: ignore[assignment]
@@ -429,7 +448,7 @@ def get_playlist_map(db: OrmSession, spotify_id: str) -> Optional[Dict[str, Any]
         "spotify_name": m.spotify_name,
         "tidal_id": m.tidal_id,
         "tidal_name": m.tidal_name,
-        "last_synced_at": m.last_synced_at.isoformat() if m.last_synced_at else None,
+        "last_synced_at": m.last_synced_at.isoformat() if getattr(m, "last_synced_at", None) else None,
     }
 
 
@@ -454,6 +473,7 @@ def replace_playlist_tracks(db: OrmSession, playlist_spotify_id: str, entries: L
                 tidal_title=(str(e.get("tidal_title")) if e.get("tidal_title") else None),
                 tidal_artist=(str(e.get("tidal_artist")) if e.get("tidal_artist") else None),
                 isrc=(str(e.get("isrc")) if e.get("isrc") else None),
+                spotify_duration=(int(e.get("spotify_duration")) if e.get("spotify_duration") is not None else None),  # type: ignore[arg-type]
                 last_synced_at=now,
             )
         )
@@ -515,7 +535,7 @@ def list_playlist_tracks(
     for r in rows:
         out.append(
             {
-                "position": int(r.position),
+                "position": int(getattr(r, "position", 0) or 0),
                 "spotify_track_id": r.spotify_track_id,
                 "spotify_title": r.spotify_title,
                 "spotify_artist": r.spotify_artist,
@@ -523,7 +543,8 @@ def list_playlist_tracks(
                 "tidal_title": r.tidal_title,  # type: ignore[attr-defined]
                 "tidal_artist": r.tidal_artist,  # type: ignore[attr-defined]
                 "isrc": r.isrc,  # type: ignore[attr-defined]
-                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
+                "duration": int(getattr(r, "spotify_duration", 0) or 0),
+                "last_synced_at": r.last_synced_at.isoformat() if getattr(r, "last_synced_at", None) else None,  # type: ignore[union-attr]
             }
         )
     return out, total
@@ -564,6 +585,8 @@ def export_tracks(db: OrmSession) -> List[Dict[str, Any]]:
                 "tidal_artist": r.tidal_artist,  # type: ignore[attr-defined]
                 "tidal_artist_id": r.tidal_artist_id,  # type: ignore[attr-defined]
                 "isrc": r.isrc,  # type: ignore[attr-defined]
+                "spotify_duration": r.spotify_duration,  # type: ignore[attr-defined]
+                "tidal_duration": r.tidal_duration,  # type: ignore[attr-defined]
                 "confidence": float(r.confidence),  # type: ignore[arg-type]
                 "resolved": bool(r.resolved),  # type: ignore[arg-type]
                 "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]
@@ -724,6 +747,8 @@ def list_synced_tracks(
                 "tidal_artist": r.tidal_artist,  # type: ignore[attr-defined]
                 "tidal_artist_id": r.tidal_artist_id,  # type: ignore[attr-defined]
                 "isrc": r.isrc,  # type: ignore[attr-defined]
+                "spotify_duration": r.spotify_duration,  # type: ignore[attr-defined]
+                "tidal_duration": r.tidal_duration,  # type: ignore[attr-defined]
                 "confidence": float(r.confidence),  # type: ignore[arg-type]
                 "resolved": bool(r.resolved),  # type: ignore[arg-type]
                 "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,  # type: ignore[union-attr]

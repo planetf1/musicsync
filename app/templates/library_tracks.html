@@ -32,6 +32,7 @@
           <th><a href="/library/tracks?sort=last_synced_at&order={{ next_order if sort=='last_synced_at' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}">Last Synced{% if sort=='last_synced_at' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th><a href="/library/tracks?sort=spotify_title&order={{ next_order if sort=='spotify_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Title{% if sort=='spotify_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th><a href="/library/tracks?sort=spotify_artist&order={{ next_order if sort=='spotify_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Artist{% if sort=='spotify_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th>Duration</th>
           <th><a href="/library/tracks?sort=tidal_title&order={{ next_order if sort=='tidal_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Title{% if sort=='tidal_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th><a href="/library/tracks?sort=tidal_artist&order={{ next_order if sort=='tidal_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Artist{% if sort=='tidal_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th>ISRC</th>
@@ -52,6 +53,14 @@
                 <a href="https://open.spotify.com/search/{{ it.spotify_artist | urlencode }}" target="_blank" rel="noopener">{{ it.spotify_artist }}</a>
               {% else %}
                 {{ it.spotify_artist or '' }}
+              {% endif %}
+            </td>
+            <td>
+              {% set d = it.spotify_duration or it.tidal_duration %}
+              {% if d %}
+                {{ (d // 60)|int }}:{{ '%02d' % (d % 60) }}
+              {% else %}
+                —
               {% endif %}
             </td>
             <td>
