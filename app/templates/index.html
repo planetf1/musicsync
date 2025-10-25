@@ -131,6 +131,36 @@
   </div>
 
   <hr />
+  <section>
+    <h3>Backups & Exports</h3>
+    <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+      <a class="btn" href="/backup/db">Download database</a>
+      <div class="dropdown-group">
+        <span>Artists:</span>
+        <a class="btn" href="/export/artists?format=json&download=1">JSON</a>
+        <a class="btn" href="/export/artists?format=csv&download=1">CSV</a>
+        <a class="btn" href="/export/artists?format=md&download=1">Markdown</a>
+      </div>
+      <div class="dropdown-group">
+        <span>Tracks:</span>
+        <a class="btn" href="/export/tracks?format=json&download=1">JSON</a>
+        <a class="btn" href="/export/tracks?format=csv&download=1">CSV</a>
+        <a class="btn" href="/export/tracks?format=md&download=1">Markdown</a>
+      </div>
+      <div class="dropdown-group">
+        <span>Playlists:</span>
+        <a class="btn" href="/export/playlists?format=json&download=1">JSON</a>
+        <a class="btn" href="/export/playlists?format=csv&download=1">CSV</a>
+        <a class="btn" href="/export/playlists?format=md&download=1">Markdown</a>
+      </div>
+    </div>
+    <form id="restore-form" method="post" action="/restore/db" enctype="multipart/form-data" style="margin-top:12px; display:flex; gap:8px; align-items:center; flex-wrap: wrap;">
+      <label for="restoreFile">Restore database from file:</label>
+      <input id="restoreFile" type="file" name="file" accept=".db,.sqlite,application/octet-stream" />
+      <button class="btn" type="submit">Upload & Restore</button>
+    </form>
+  </section>
+  <hr />
   <div class="actions">
     <button id="btn-sync-playlists" class="btn" onclick="startPlaylistSync()" {% if not (spotify_ok and tidal_ok) %}disabled{% endif %}>Sync Playlists (Spotify → TIDAL)</button>
     <div id="playlist-sync-progress" style="margin-top:8px"></div>

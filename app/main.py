@@ -8,15 +8,19 @@ from datetime import datetime, timezone
 from tidalapi import artist as tidal_artist
 import re
 import unicodedata
+import os
 
 from fastapi import FastAPI, Request, HTTPException, Form
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse, PlainTextResponse
+from fastapi import UploadFile, File
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 
 from .storage import (
     init_db,
     SessionLocal,
+    DB_PATH,
+    engine,
     add_pending_resolution,
     delete_pending,
     get_pending,
@@ -938,7 +942,7 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
                 with SessionLocal() as db:
                     for sid in sp_track_ids:
                         tm = db.get(TrackMap, sid)
-                        if tm and tm.tidal_id:
+                        if (tm is not None) and (getattr(tm, "tidal_id", None)):
                             tidal_to_add_ordered.append(str(tm.tidal_id))
                             sid_to_meta[sid] = {
                                 "tidal_id": str(tm.tidal_id),
@@ -1003,7 +1007,8 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
                 # Add any missing to the playlist, skipping duplicates
                 to_add_final: List[str] = [tid for tid in tidal_to_add_ordered if tid not in existing_ids]
                 # Chunk adds for API limits
-                if to_add_final and hasattr(tidal_playlist_obj, "add"):
+                add_method = getattr(tidal_playlist_obj, "add", None)
+                if to_add_final and callable(add_method):
                     try:
                         pos = tidal_playlist_obj.num_tracks if getattr(tidal_playlist_obj, "num_tracks", None) is not None else -1
                     except Exception:
@@ -1012,11 +1017,11 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
                     while i < len(to_add_final):
                         chunk = to_add_final[i:i+100]
                         try:
-                            tidal_playlist_obj.add(chunk, allow_duplicates=False, position=pos)
+                            add_method(chunk, allow_duplicates=False, position=pos)
                         except Exception:
                             for single in chunk:
                                 try:
-                                    tidal_playlist_obj.add([single], allow_duplicates=False, position=pos)
+                                    add_method([single], allow_duplicates=False, position=pos)
                                 except Exception:
                                     pass
                         i += len(chunk)
@@ -1176,6 +1181,125 @@ async def backup_playlists():
     with SessionLocal() as db:
         data = export_playlists(db)
     return JSONResponse(data)
+
+
+# ---- Database backup/restore ----
+
+@app.get("/backup/db")
+async def backup_db():
+    try:
+        fh = open(DB_PATH, "rb")
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="database not found")
+    resp = StreamingResponse(fh, media_type="application/octet-stream")
+    resp.headers["Content-Disposition"] = "attachment; filename=musicsync.db"
+    return resp
+
+
+@app.post("/restore/db")
+async def restore_db(file: UploadFile = File(...)):
+    import shutil
+    import time
+    # Read small header to sanity check
+    head = await file.read(16)
+    await file.seek(0)
+    if head[:15] != b"SQLite format 3":
+        # Allow anyway but warn
+        _log.warning("Uploaded restore file does not look like SQLite. Proceeding anyway.")
+    # Backup existing DB if present
+    try:
+        engine.dispose()
+    except Exception:
+        pass
+    ts = time.strftime("%Y%m%d-%H%M%S")
+    backup_path = f"{DB_PATH}.bak.{ts}" if os.path.exists(DB_PATH) else None
+    try:
+        if backup_path:
+            shutil.copy2(DB_PATH, backup_path)
+        # Replace DB
+        with open(DB_PATH, "wb") as out:
+            shutil.copyfileobj(file.file, out)
+        # Re-init in case migrations are needed
+        init_db()
+        return JSONResponse({"status": "ok", "backup": backup_path})
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"restore failed: {e}")
+
+
+# ---- Multi-format exports ----
+
+def _to_csv(rows: list[dict[str, Any]], headers: list[str]) -> str:
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=headers, extrasaction="ignore")
+    w.writeheader()
+    for r in rows:
+        w.writerow({k: r.get(k) for k in headers})
+    return buf.getvalue()
+
+
+def _to_markdown(rows: list[dict[str, Any]], headers: list[str]) -> str:
+    # Simple GitHub-flavored table
+    line1 = "| " + " | ".join(headers) + " |"
+    line2 = "| " + " | ".join(["---"] * len(headers)) + " |"
+    lines = [line1, line2]
+    for r in rows:
+        vals = [str(r.get(h, "") or "") for h in headers]
+        lines.append("| " + " | ".join(vals) + " |")
+    return "\n".join(lines) + "\n"
+
+
+@app.get("/export/{kind}")
+async def export_any(kind: str, format: str = "json", download: bool = False):
+    kind = kind.lower()
+    format = format.lower()
+    if kind not in ("artists", "tracks", "playlists"):
+        raise HTTPException(status_code=400, detail="invalid kind")
+    with SessionLocal() as db:
+        if kind == "artists":
+            rows = export_artists(db)
+            headers = ["spotify_id", "spotify_name", "tidal_id", "tidal_name", "confidence", "resolved", "last_synced_at"]
+        elif kind == "tracks":
+            rows = export_tracks(db)
+            headers = [
+                "spotify_id",
+                "spotify_title",
+                "spotify_artist",
+                "spotify_artist_id",
+                "tidal_id",
+                "tidal_title",
+                "tidal_artist",
+                "tidal_artist_id",
+                "isrc",
+                "spotify_duration",
+                "tidal_duration",
+                "confidence",
+                "resolved",
+                "last_synced_at",
+            ]
+        else:
+            rows = export_playlists(db)
+            headers = ["spotify_id", "spotify_name", "tidal_id", "tidal_name", "last_synced_at"]
+
+    if format == "json":
+        return JSONResponse(rows)
+    elif format in ("csv", "tsv"):
+        text = _to_csv(rows, headers)
+        media = "text/csv"
+        filename = f"{kind}.csv"
+        resp = PlainTextResponse(text, media_type=media)
+        if download:
+            resp.headers["Content-Disposition"] = f"attachment; filename={filename}"
+        return resp
+    elif format in ("md", "markdown"):
+        text = _to_markdown(rows, headers)
+        resp = PlainTextResponse(text, media_type="text/markdown")
+        if download:
+            resp.headers["Content-Disposition"] = f"attachment; filename={kind}.md"
+        return resp
+    else:
+        raise HTTPException(status_code=400, detail="invalid format; use json,csv,md")
 
 
 # ---- Library views (synced items) ----
