@@ -41,5 +41,13 @@ select,input[type="text"],input[type="number"],input[type="search"]{padding:6px;
 .table th,.table td{padding:8px;border-bottom:1px solid var(--border);text-align:left}
 .table thead th{position:sticky;top:0;background:var(--card)}
 
+/* Numeric alignment */
+.table th.num, .table td.num{
+	text-align:right;
+	white-space:nowrap;
+	font-variant-numeric: tabular-nums;
+	font-feature-settings: "tnum" 1, "lnum" 1;
+}
+
 /* Cards */
 .card{background:var(--card);border:1px solid var(--border);border-radius:8px}

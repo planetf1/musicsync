@@ -1583,6 +1583,15 @@ async def library_playlists(request: Request):
             page=page,
             page_size=page_size,
         )
+        # Attach lightweight stats (count and total duration) for visible items only
+        try:
+            for it in items:
+                try:
+                    it["stats"] = get_playlist_stats(db, it["spotify_id"])  # type: ignore[index]
+                except Exception:
+                    it["stats"] = {"count": 0, "total_seconds": 0}
+        except Exception:
+            pass
     pages = (total + page_size - 1) // page_size if page_size else 1
     if page < 1:
         page = 1
@@ -1667,7 +1676,6 @@ async def library_playlist_detail(spotify_id: str, request: Request):
 async def status_page(request: Request):
     import platform
     import sys
-    import time
 
     # Connection status
     spotify_ok = False

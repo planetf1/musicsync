@@ -49,7 +49,7 @@
           <th><a href="/library/artists?sort=last_synced_at&order={{ next_order if sort=='last_synced_at' else 'desc' }}&q={{ q }}&genre={{ genre }}&page_size={{ page_size_param }}">Last Synced{% if sort=='last_synced_at' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th><a href="/library/artists?sort=spotify_name&order={{ next_order if sort=='spotify_name' else 'asc' }}&q={{ q }}&genre={{ genre }}&page_size={{ page_size_param }}">Spotify Artist{% if sort=='spotify_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th><a href="/library/artists?sort=tidal_name&order={{ next_order if sort=='tidal_name' else 'asc' }}&q={{ q }}&genre={{ genre }}&page_size={{ page_size_param }}">TIDAL Artist{% if sort=='tidal_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
-          <th><a href="/library/artists?sort=confidence&order={{ next_order if sort=='confidence' else 'desc' }}&q={{ q }}&genre={{ genre }}&page_size={{ page_size_param }}">Confidence{% if sort=='confidence' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th class="num"><a href="/library/artists?sort=confidence&order={{ next_order if sort=='confidence' else 'desc' }}&q={{ q }}&genre={{ genre }}&page_size={{ page_size_param }}">Confidence{% if sort=='confidence' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th><a href="/library/artists?sort=genre&order={{ next_order if sort=='genre' else 'asc' }}&q={{ q }}&genre={{ genre }}&page_size={{ page_size_param }}">Genres{% if sort=='genre' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
         </tr>
       </thead>
@@ -65,7 +65,7 @@
                 —
               {% endif %}
             </td>
-            <td>{{ '%.0f'|format(it.confidence or 0) }}</td>
+            <td class="num">{{ '%.0f'|format(it.confidence or 0) }}</td>
             <td>
               {% if it.genres and it.genres|length > 0 %}
                 {{ it.genres | join(', ') }}

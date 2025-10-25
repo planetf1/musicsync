@@ -16,13 +16,7 @@
     <div class="card" style="margin: 8px 0; padding:8px; display:inline-block;">
       <strong>Summary:</strong>
       <span style="margin-left:8px;">{{ stats.count }} tracks</span>
-      <span style="margin-left:12px;">Total duration:
-        {% if h > 0 %}
-          {{ h }}:{% if m < 10 %}0{% endif %}{{ m }}:{% if s < 10 %}0{% endif %}{{ s }}
-        {% else %}
-          {{ m }}:{% if s < 10 %}0{% endif %}{{ s }}
-        {% endif %}
-      </span>
+      <span style="margin-left:12px;">Total duration: {{ h }}:{% if m < 10 %}0{% endif %}{{ m }}:{% if s < 10 %}0{% endif %}{{ s }}</span>
     </div>
   {% endif %}
   <form method="get" action="/library/playlists/{{ playlist.spotify_id }}" style="margin-bottom:10px; display:flex; gap:8px; align-items:center; flex-wrap: wrap;">
@@ -50,10 +44,10 @@
         <tr>
           {% set next_order = 'asc' if order=='desc' else 'desc' %}
           {% set page_size_param = 'all' if page_size == 0 else page_size %}
-          <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=position&order={{ next_order if sort=='position' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}"># {% if sort=='position' %}{% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th class="num"><a href="/library/playlists/{{ playlist.spotify_id }}?sort=position&order={{ next_order if sort=='position' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}"># {% if sort=='position' %}{% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=spotify_title&order={{ next_order if sort=='spotify_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Title{% if sort=='spotify_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=spotify_artist&order={{ next_order if sort=='spotify_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Artist{% if sort=='spotify_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
-          <th>Duration</th>
+          <th class="num">Duration</th>
           <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=tidal_title&order={{ next_order if sort=='tidal_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Title{% if sort=='tidal_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=tidal_artist&order={{ next_order if sort=='tidal_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL Artist{% if sort=='tidal_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
         </tr>
@@ -61,14 +55,18 @@
       <tbody>
         {% for it in items %}
           <tr>
-            <td>{{ it.position }}</td>
+            <td class="num">{{ it.position }}</td>
             <td>
               <a href="https://open.spotify.com/track/{{ it.spotify_track_id }}" target="_blank" rel="noopener">{{ it.spotify_title }}</a>
             </td>
             <td>{{ it.spotify_artist }}</td>
-            <td>
+            <td class="num">
               {% if it.duration %}
-                {{ (it.duration // 60)|int }}:{{ '%02d' % (it.duration % 60) }}
+                {% set total = it.duration %}
+                {% set h = (total // 3600) | int %}
+                {% set m = ((total % 3600) // 60) | int %}
+                {% set s = (total % 60) | int %}
+                {{ h }}:{% if m < 10 %}0{% endif %}{{ m }}:{% if s < 10 %}0{% endif %}{{ s }}
               {% else %}
                 —
               {% endif %}

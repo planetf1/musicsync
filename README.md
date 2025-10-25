@@ -23,6 +23,7 @@ Sync your Spotify library to TIDAL with a friendly web UI, idempotent operations
 - Library browsing
   - Artists, Tracks, Playlists pages with search, sorting, pagination, and page-size presets (including “all”)
   - Direct links out to Spotify/TIDAL entities
+  - Playlists list shows each playlist's track count and total runtime; detail page shows the per-playlist track list with durations and a summary
 - Backups & Exports
   - Download database: `/backup/db`
   - Multi-format exports for artists, tracks, playlists: `/export/{kind}?format=json|csv|md&download=1`
@@ -86,6 +87,7 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --loop asyncio --http h11
 Then open:
 
 - App: <http://localhost:8000>
+- Status: <http://localhost:8000/status>
 - Artists library: <http://localhost:8000/library/artists>
 - Tracks library: <http://localhost:8000/library/tracks>
 - Playlists library: <http://localhost:8000/library/playlists>
@@ -107,7 +109,7 @@ Then open:
 
 - Pending matches: resolve from the Pending pages.
 - Library pages: browse synced Artists/Tracks/Playlists with search, sort (including Genres), pagination, and page-size presets.
-- Playlist details: click a playlist name in the Playlists library to view the locally stored track list (includes Spotify links and TIDAL links where mapped).
+- Playlist details: click a playlist name in the Playlists library to view the locally stored track list (includes Spotify links and TIDAL links where mapped). A summary card shows total tracks and total duration (H:MM:SS).
 
 ### Genres (optional)
 
@@ -165,6 +167,15 @@ We use the `tidalapi` device login flow. When you press “Connect TIDAL,” the
    ```bash
    uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log
    ```
+
+  If you installed the CLI via uv or pipx (`musicsync` command), you can control server internals with env vars for a pure-Python stack:
+
+
+  ```bash
+  MUSICSYNC_LOOP=asyncio MUSICSYNC_HTTP=h11 MUSICSYNC_RELOAD=0 MUSICSYNC_ACCESS_LOG=0 musicsync
+  ```
+
+  Then check the diagnostics page at <http://localhost:8000/status> to confirm the server is up and accounts are connected.
 
 ## License
 
