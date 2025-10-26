@@ -1,6 +1,8 @@
 # MusicSync
 
-Sync your Spotify library to TIDAL with a friendly web UI, idempotent operations, and clear progress. Focus areas: followed artists, liked tracks, and user-owned playlists.
+Sync your Spotify library to TIDAL with a friendly web UI, idempotent
+operations, and clear progress. Focus areas: followed artists, liked tracks,
+and user-owned playlists.
 
 Looking for a quick visual tour? See the Screenshots & Feature Guide:
 
@@ -25,9 +27,11 @@ Looking for a quick visual tour? See the Screenshots & Feature Guide:
   - Maps tracks via TrackMap (or matching) and adds missing tracks
   - Stores an ordered per-playlist track snapshot locally for browsing
 - Library browsing
-  - Artists, Tracks, Playlists pages with search, sorting, pagination, and page-size presets (including “all”)
+  - Artists, Tracks, Playlists pages with search, sorting, pagination, and
+    page-size presets (including “all”)
   - Direct links out to Spotify/TIDAL entities
-  - Playlists list shows each playlist's track count and total runtime; detail page shows the per-playlist track list with durations and a summary
+  - Playlists list shows each playlist's track count and total runtime; detail
+    page shows the per-playlist track list with durations and a summary
 - Backups & Exports
   - Download database: `/backup/db`
   - Multi-format exports for artists, tracks, playlists: `/export/{kind}?format=json|csv|md&download=1`
@@ -63,10 +67,15 @@ brew install astral-sh/uv/uv || curl -LsSf https://astral.sh/uv/install.sh | sh
 uv run --with uvicorn uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 
 # Compatibility mode (avoids native uvloop/httptools)
-uv run --with uvicorn uvicorn app.main:app --host 127.0.0.1 --port 8000 --loop asyncio --http h11
+uv run --with uvicorn \
+  uvicorn app.main:app \
+  --host 127.0.0.1 --port 8000 \
+  --loop asyncio --http h11
 
 # (Alternative)
-# uv run --with uvicorn python -m uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
+# uv run --with uvicorn \
+#   python -m uvicorn app.main:app \
+#   --host 127.0.0.1 --port 8000 --reload
 
 # Or install the CLI tool from this repo via uv
 uv tool install "git+https://github.com/planetf1/musicsync.git"
@@ -107,34 +116,46 @@ Then open:
 
 - “Sync Followed Artists” adds matches to TIDAL favorites.
 - “Sync Liked Tracks” adds songs to TIDAL favorites using ISRC-first mapping.
-- “Sync Playlists” creates/updates your user-owned Spotify playlists on TIDAL and records the ordered track list locally.
+- “Sync Playlists” creates/updates your user-owned Spotify playlists on TIDAL
+  and records the ordered track list locally.
 
 ### Review & browse
 
 - Pending matches: resolve from the Pending pages.
-- Library pages: browse synced Artists/Tracks/Playlists with search, sort (including Genres), pagination, and page-size presets.
-- Playlist details: click a playlist name in the Playlists library to view the locally stored track list (includes Spotify links and TIDAL links where mapped). A summary card shows total tracks and total duration (H:MM:SS).
+- Library pages: browse synced Artists/Tracks/Playlists with search, sort
+  (including Genres), pagination, and page-size presets.
+- Playlist details: click a playlist name in the Playlists library to view the
+  locally stored track list (includes Spotify links and TIDAL links where
+  mapped). A summary card shows total tracks and total duration (H:MM:SS).
 
 ### Genres (optional)
 
-- The Artists page shows a Top Genres widget and supports filtering and sorting by genres.
-- Use the “Refresh Genres” button to fetch or update genres for your artists from Spotify. Enable “Missing only” for a quick top-up.
+- The Artists page shows a Top Genres widget and supports filtering and
+  sorting by genres.
+- Use the “Refresh Genres” button to fetch or update genres for your artists
+  from Spotify. Enable “Missing only” for a quick top-up.
 
 ## Notes on TIDAL login
 
-We use the `tidalapi` device login flow. When you press “Connect TIDAL,” the UI shows a link/code to authorize. After completing it, refresh the app; your session is cached for reuse.
+We use the `tidalapi` device login flow. When you press “Connect TIDAL,” the
+UI shows a link/code to authorize. After completing it, refresh the app; your
+session is cached for reuse.
 
 ## Idempotency & persistence
 
 - SQLite DB: `musicsync.db` in the project root.
 - Mappings and sync events are stored; favorites and playlist adds skip duplicates.
-- You can re-run syncs safely; the app stores per-playlist track snapshots in DB for browsing.
+- You can re-run syncs safely; the app stores per-playlist track snapshots in
+  DB for browsing.
 
 ## Limits and caveats
 
-- TIDAL favorites: user reports indicate ~10k limit per category (e.g., albums). If you hit the limit, TIDAL returns errors.
-- Playlist size: clients and APIs may behave differently for very large playlists; the app adds tracks in chunks and avoids duplicates.
-- Matching: ISRCs are preferred; otherwise, robust normalized fuzzy matching is used, which may queue some items for manual review.
+- TIDAL favorites: user reports indicate ~10k limit per category (e.g.,
+  albums). If you hit the limit, TIDAL returns errors.
+- Playlist size: clients and APIs may behave differently for very large
+  playlists; the app adds tracks in chunks and avoids duplicates.
+- Matching: ISRCs are preferred; otherwise, robust normalized fuzzy matching is
+  used, which may queue some items for manual review.
 
 ## Backup endpoints
 
@@ -144,42 +165,53 @@ We use the `tidalapi` device login flow. When you press “Connect TIDAL,” the
 
 ## Contributing & design
 
-- See AGENTS.md for an overview of the architecture, database schema, and background job design (especially helpful for automated tooling/agents).
+- See AGENTS.md for an overview of the architecture, database schema, and
+  background job design (especially helpful for automated tooling/agents).
 - See docs/PLAYLISTS.md for a deeper dive into playlist sync logic and trade-offs.
 
 ## Troubleshooting
 
-- “Connect TIDAL” shows pending forever: open the provided link, approve, then click “Check Status” or refresh.
+- “Connect TIDAL” shows pending forever: open the provided link, approve, then
+  click “Check Status” or refresh.
 - Spotify auth errors: ensure Redirect URI matches exactly.
 - Missing rapidfuzz: `pip install -r requirements.txt` (it’s included).
-- Unicode/diacritics oddities in matches: normalization strips accents and punctuation; use manual resolve when in doubt.
-- Server doesn’t start (curl returns 000/7): ensure uvicorn is running and no firewall is blocking 127.0.0.1:8000.
-- Process killed (exit 137) on start: try running without `--reload` to reduce memory use. Example:
+- Unicode/diacritics oddities in matches: normalization strips accents and
+  punctuation; use manual resolve when in doubt.
+- Server doesn’t start (curl returns 000/7): ensure uvicorn is running and no
+  firewall is blocking 127.0.0.1:8000.
+- Process killed (exit 137) on start: try running without `--reload` to reduce
+  memory use. Example:
 
    ```bash
    uvicorn app.main:app --host 127.0.0.1 --port 8000
    ```
 
-   If using uv, this variant also avoids reload overhead:
+  If using uv, this variant also avoids reload overhead:
 
    ```bash
    uv run --with uvicorn uvicorn app.main:app --host 127.0.0.1 --port 8000
    ```
 
-   You can also reduce logging load with `--no-access-log`.
+  You can also reduce logging load with `--no-access-log`.
 
    ```bash
    uvicorn app.main:app --host 127.0.0.1 --port 8000 --no-access-log
    ```
 
-  If you installed the CLI via uv or pipx (`musicsync` command), you can control server internals with env vars for a pure-Python stack:
+  If you installed the CLI via uv or pipx (`musicsync` command), you can
+  control server internals with env vars for a pure-Python stack:
 
 
   ```bash
-  MUSICSYNC_LOOP=asyncio MUSICSYNC_HTTP=h11 MUSICSYNC_RELOAD=0 MUSICSYNC_ACCESS_LOG=0 musicsync
+  MUSICSYNC_LOOP=asyncio \
+  MUSICSYNC_HTTP=h11 \
+  MUSICSYNC_RELOAD=0 \
+  MUSICSYNC_ACCESS_LOG=0 \
+  musicsync
   ```
 
-  Then check the diagnostics page at <http://localhost:8000/status> to confirm the server is up and accounts are connected.
+  Then check the diagnostics page at <http://localhost:8000/status> to confirm
+  the server is up and accounts are connected.
 
 ## License
 
