@@ -99,7 +99,7 @@ Long-running syncs:
 
 ## Coding conventions
 
-- Python 3.10+; FastAPI; SQLAlchemy ORM; Spotipy; tidalapi; rapidfuzz.
+- Python 3.13+; FastAPI; SQLAlchemy ORM; Spotipy; tidalapi; rapidfuzz.
 - Logging: we currently use f-strings in the codebase; feel free to convert to
   lazy `%` formatting in future cleanups, but keep messages informative and
   sparse at INFO.

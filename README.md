@@ -6,7 +6,7 @@ and user-owned playlists.
 
 Looking for a quick visual tour? See the Screenshots & Feature Guide:
 
-- docs/SCREENSHOTS.md
+- [Screenshots & Feature Guide](docs/SCREENSHOTS.md)
 
 ## Features
 
@@ -39,7 +39,7 @@ Looking for a quick visual tour? See the Screenshots & Feature Guide:
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.13+
 - A Spotify Developer App with a Redirect URI set to `http://localhost:8000/auth/spotify/callback`
 
 Create a `.env` in the project root (see `.env.example` for a template):
@@ -165,9 +165,11 @@ session is cached for reuse.
 
 ## Contributing & design
 
-- See AGENTS.md for an overview of the architecture, database schema, and
-  background job design (especially helpful for automated tooling/agents).
-- See docs/PLAYLISTS.md for a deeper dive into playlist sync logic and trade-offs.
+- See [AGENTS.md](AGENTS.md) for an overview of the architecture, database
+  schema, and background job design (especially helpful for automated
+  tooling/agents).
+- See [docs/PLAYLISTS.md](docs/PLAYLISTS.md) for a deeper dive into playlist
+  sync logic and trade-offs.
 
 ## Service coverage and roadmap
 
@@ -191,7 +193,7 @@ Capabilities differ by target service due to API surface area and reliability.
   - Limitations: no documented write API to programmatically favorite/follow
     artists; "love/dislike" flags are not reliably writable. Storefront/region
     matters for search and availability.
-  - Design doc: docs/APPLE_MUSIC_INTEGRATION.md
+  - Design doc: [docs/APPLE_MUSIC_INTEGRATION.md](docs/APPLE_MUSIC_INTEGRATION.md)
 
 - YouTube Music (planned target)
   - No official public API; integration relies on `ytmusicapi` (reverse-
@@ -201,7 +203,7 @@ Capabilities differ by target service due to API surface area and reliability.
     reliable across accounts.
   - Matching is primarily text + duration based; prefer song entities over
     general videos and bias toward official artist channels.
-  - Design doc: docs/YOUTUBE_MUSIC_INTEGRATION.md
+  - Design doc: [docs/YOUTUBE_MUSIC_INTEGRATION.md](docs/YOUTUBE_MUSIC_INTEGRATION.md)
 
 We expose per-service capabilities clearly in the UI and keep an unmatched
 review flow for ambiguous mappings. Planned targets are feature-flagged and
