@@ -169,6 +169,44 @@ session is cached for reuse.
   background job design (especially helpful for automated tooling/agents).
 - See docs/PLAYLISTS.md for a deeper dive into playlist sync logic and trade-offs.
 
+## Service coverage and roadmap
+
+This project treats Spotify as the source of truth and syncs to other services.
+Capabilities differ by target service due to API surface area and reliability.
+
+- Spotify (source)
+  - Rich official Web API and OAuth.
+  - Followed artists, liked tracks, and playlists are fully supported as a
+    source for sync.
+
+- TIDAL (current target)
+  - Supported today for artists (favorites), liked tracks (favorites), and
+    playlists (create/update, ordered adds). Uses device login via `tidalapi`.
+  - Notes: additions are chunked to avoid rate limits; user-reported favorites
+    limits around ~10k per category may apply.
+
+- Apple Music (planned target)
+  - Playlists and adding tracks to the user's library are feasible via Apple
+    Music API + MusicKit (Developer Token + Music User Token).
+  - Limitations: no documented write API to programmatically favorite/follow
+    artists; "love/dislike" flags are not reliably writable. Storefront/region
+    matters for search and availability.
+  - Design doc: docs/APPLE_MUSIC_INTEGRATION.md
+
+- YouTube Music (planned target)
+  - No official public API; integration relies on `ytmusicapi` (reverse-
+    engineered, now with OAuth). Feasible for playlists.
+  - Liked tracks are best represented as a dedicated playlist (e.g., "Liked
+    from Spotify") for determinism; direct "like" operations may not be
+    reliable across accounts.
+  - Matching is primarily text + duration based; prefer song entities over
+    general videos and bias toward official artist channels.
+  - Design doc: docs/YOUTUBE_MUSIC_INTEGRATION.md
+
+We expose per-service capabilities clearly in the UI and keep an unmatched
+review flow for ambiguous mappings. Planned targets are feature-flagged and
+will roll out gradually.
+
 ## Troubleshooting
 
 - “Connect TIDAL” shows pending forever: open the provided link, approve, then
