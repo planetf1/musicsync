@@ -99,5 +99,5 @@ track count and total runtime; click a playlist to view its ordered snapshot.
 - Library pages to browse synced content, plus exports and database backup
 - Background jobs with progress and a Status page for quick diagnostics
 
-For deeper architecture details, see `AGENTS.md`. For playlist specifics, see
-`docs/PLAYLISTS.md`.
+For deeper architecture details, see [AGENTS.md](../AGENTS.md). For playlist
+specifics, see [PLAYLISTS.md](PLAYLISTS.md).

@@ -164,4 +164,4 @@ uv run --with uvicorn uvicorn app.main:app \
 - The per-playlist snapshot reflects Spotify order at the time of sync;
   subsequent edits on TIDAL are not back-propagated.
 
-If you need a deep dive into playlist specifics, see `docs/PLAYLISTS.md`.
+If you need a deep dive into playlist specifics, see [docs/PLAYLISTS.md](docs/PLAYLISTS.md).
