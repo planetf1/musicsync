@@ -1,8 +1,32 @@
-# Apple Music Integration — Design Proposal
+# Apple Music Integration — Implementation Notes
 
-Status: Proposal (no implementation yet)
+Status: **Implemented** (playlists and liked tracks)
 Owners: Contributors / Maintainers
-Last updated: 2025-10-26
+Last updated: 2025-01-09
+
+## Implementation Summary
+
+Apple Music integration is now live in MusicSync. Key features:
+
+- **Playlists**: Sync user-owned Spotify playlists to Apple Music (create/update with ordered track additions).
+- **Liked tracks**: Add Spotify liked tracks to Apple Music library.
+- **Matching**: ISRC-first with fuzzy fallback (title/artist/duration scoring).
+- **Authentication**: Two-token approach (Developer Token JWT + Music User Token via MusicKit JS).
+- **Storage**: Multi-service support in `playlist_map` and `track_map` tables with composite keys.
+- **UI**: Connect Apple Music button, playlist sync, and likes sync with progress polling.
+
+**Limitations** (by Apple Music API design):
+- No programmatic artist following/favoriting.
+- "Love/dislike" flags are read-only; we add tracks to library instead.
+- Storefront/region availability varies.
+
+See below for the original design proposal, which guided the implementation.
+
+---
+
+# Original Design Proposal
+
+The following sections capture the design approach that informed the implementation. Most goals were achieved; see the Implementation Summary above for specifics.
 
 ## Goals
 
@@ -241,3 +265,68 @@ Total: ~1.5–2.5 weeks elapsed including setup and review.
 - Mapping storage: generalize existing tables vs dedicated Apple tables — prefer generalization; verify impact on existing queries.
 - Deletion semantics: should Apple playlist sync strictly mirror (remove extras) or be additive by default? Consider a user setting.
 - Popularity signals: does Apple API surface enough ranking metadata to aid tie-breaks consistently across storefronts?
+
+---
+
+## Implementation Details (Actual Build)
+
+### What Was Built
+
+**Files Created/Modified:**
+- `app/apple_client.py`: Complete Apple Music client with JWT generation (ES256), storefront detection, ISRC + fuzzy search, playlist operations, and library additions.
+- `app/main.py`: Background jobs for Apple playlist sync and liked tracks sync with progress tracking (`_run_sync_apple_playlists_job`, `_run_sync_apple_likes_job`). Endpoints: `/apple/connect`, `/apple/token`, `/sync/apple/playlists/start|status`, `/sync/apple/likes/start|status`.
+- `app/storage.py`: Extended `tokens` table for Apple tokens; generalized `playlist_map` and `track_map` with composite keys `(spotify_id, service)` to support multi-service mappings. Added `list_synced_playlists()` grouping by `spotify_id` to return TIDAL and Apple mappings together.
+- `app/templates/`: Updated `index.html` (Apple connect button + sync UI with JavaScript polling), `library_playlists.html` (Apple column), `library_playlist_detail.html` (Apple service indicator), `apple_connect.html` (MusicKit JS integration).
+
+**Key Design Decisions:**
+- **Mapping storage**: Chose Option A (generalize existing tables) by adding service discrimination to `playlist_map` and `track_map`. This avoids duplication and keeps listing/export logic consistent.
+- **Authentication**: Two-token approach implemented as designed. Developer Token generated on-demand with PyJWT + cryptography (ES256). Music User Token obtained via MusicKit JS popup and stored in `tokens` table.
+- **Matching**: ISRC-first is a hard win (score 1000); fallback to fuzzy text search with normalized title/artist and duration tolerance. High confidence threshold (≥95 overall or ISRC match ≥900) for auto-match; otherwise queued to `pending_track_resolution`.
+- **Chunking**: Playlist adds are chunked at 100 tracks per batch; library adds also at 100 tracks per batch. Retry logic on partial failures with per-item fallback.
+- **Progress tracking**: Uses existing `_job_set()` pattern with counters: `created`, `updated`, `mapped`, `added_to_apple`, `existing_on_apple`, `skipped`, `pending_count`.
+- **Deletion semantics**: Additive by default (no removal of extra tracks from Apple playlists). Tracks are skipped if already present; no strict mirroring implemented initially.
+
+**Environment Variables (as designed):**
+- `APPLE_MUSIC_TEAM_ID`
+- `APPLE_MUSIC_KEY_ID`
+- `APPLE_MUSIC_PRIVATE_KEY_PATH`
+- `APPLE_ENABLED` (feature flag, defaults to `true`)
+
+**Testing:**
+- Manual validation completed: Spotify + Apple Music connection, playlist sync, liked tracks sync, library browsing, pending resolution UI.
+- Pre-commit hooks (ruff, mypy) enforced code quality.
+- Unit tests for Apple client are tracked as future work (issue `musicsync-w88`).
+
+**Known Deviations from Proposal:**
+- Effort estimate was ~1.5–2.5 weeks; actual implementation was ~2 days focused work (benefiting from existing patterns).
+- No dedicated `/pending-apple` pages; reused existing Pending resolution UI with service context.
+- No feature flag toggle in UI yet; relies on `APPLE_ENABLED` env var.
+
+### Setup Instructions
+
+1. **Apple Developer Account**: Enroll at <https://developer.apple.com/programs/> ($99/year).
+2. **Create MusicKit Identifier**: Apple Developer → Certificates, Identifiers & Profiles → Identifiers → MusicKit.
+3. **Generate Private Key**: Create a key with MusicKit enabled, download `.p8` file (keep it secure).
+4. **Configure `.env`**:
+   ```bash
+   APPLE_ENABLED=true
+   APPLE_MUSIC_TEAM_ID=ABCD123456
+   APPLE_MUSIC_KEY_ID=XYZ1234567
+   APPLE_MUSIC_PRIVATE_KEY_PATH=/absolute/path/to/AuthKey_XYZ1234567.p8
+   ```
+5. **Connect in UI**: Navigate to <http://localhost:8000>, click "Connect Apple Music", authenticate via popup.
+6. **Run Syncs**: Use "Sync Playlists to Apple Music" or "Sync Liked Tracks to Apple Music" buttons.
+
+### Troubleshooting
+
+- **"Connect Apple Music" fails**: Verify Team ID, Key ID, and private key path. Ensure the .p8 file is accessible and the MusicKit identifier is active. Check that you have an active Apple Music subscription.
+- **"Track not found" during sync**: Storefront/region availability varies. Check that tracks are available in your Apple Music region.
+- **Browser popup blocked**: Ensure browser allows popups for `localhost:8000`. Check browser console for MusicKit JS errors.
+- **`401 Unauthorized` from Apple**: Developer Token expired or invalid. App regenerates automatically; if issue persists, verify key configuration.
+
+### Future Enhancements
+
+- Add unit tests for `AppleMusicClient` (tracked in `musicsync-w88`).
+- Research Apple Music artist following capability via API (tracked in `musicsync-6jn`).
+- Explore strict mirroring mode for playlists (remove extras on Apple that aren't in Spotify).
+- UI refinements: feature flag toggle, improved pending resolution filtering.

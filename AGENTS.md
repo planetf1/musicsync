@@ -6,12 +6,12 @@ new features safely and consistently.
 
 ## Overview
 
-MusicSync is a FastAPI web app that syncs a user's Spotify library to TIDAL. It
+MusicSync is a FastAPI web app that syncs a user's Spotify library to TIDAL and Apple Music. It
 focuses on:
 
 - Followed artists → TIDAL favorites
-- Liked tracks → TIDAL favorites
-- User-owned playlists → TIDAL playlists
+- Liked tracks → TIDAL favorites, Apple Music library
+- User-owned playlists → TIDAL playlists, Apple Music playlists
 
 Core goals:
 
@@ -19,6 +19,7 @@ Core goals:
 - Background jobs with progress polling
 - Robust matching (ISRC-first, otherwise normalized fuzzy matching)
 - Local persistence of mappings and per-playlist track snapshots
+- Multi-service support (TIDAL and Apple Music as sync targets)
 
 ## Project layout
 
@@ -26,6 +27,7 @@ Core goals:
 - `app/storage.py`: SQLAlchemy models, DB session and helpers (CRUD, listings, exports)
 - `app/spotify_client.py`: Spotify auth + Spotipy client factory
 - `app/tidal_client.py`: TIDAL device login via tidalapi and session management
+- `app/apple_client.py`: Apple Music auth (JWT + MusicKit) and API client
 - `app/matching.py`: Fuzzy scoring and normalization helpers for artists/tracks
 - `app/templates/`: Jinja2 templates for UI pages
 - `app/static/`: CSS and assets
@@ -37,13 +39,14 @@ Core goals:
 - `artist_map` — Spotify artist → TIDAL artist mapping (with confidence,
   resolved flag, last_synced_at)
 - `pending_resolution` — artist-level pending candidates for manual resolution
-- `track_map` — Spotify track → TIDAL track mapping (artist ids, ISRC,
-  confidence, resolved, last_synced_at)
+- `track_map` — Spotify track → TIDAL/Apple Music track mapping (artist ids, ISRC,
+  confidence, resolved, last_synced_at). Multi-service support via composite key `(spotify_id, service)`.
 - `pending_track_resolution` — track-level pending candidates for manual resolution
 - `artist_sync_event` / `track_sync_event` — audit of actions (auto/manual)
-- `playlist_map` — Spotify playlist → TIDAL playlist mapping
+- `playlist_map` — Spotify playlist → TIDAL/Apple Music playlist mapping. Multi-service
+  support via composite key `(spotify_id, service)`.
 - `playlist_track` — snapshot of tracks in a Spotify playlist (ordered), with
-  optional mapped TIDAL track ids
+  optional mapped TIDAL/Apple Music track ids
 
 SQLite tables are created via SQLAlchemy `Base.metadata.create_all()` and a few
 light raw-SQL migrations for older tables. Avoid destructive migrations.
@@ -61,10 +64,10 @@ Long-running syncs:
 
 - Artists: fetch followed artists, match to TIDAL, update favorites, upsert
   mapping, queue pending when ambiguous.
-- Tracks: fetch liked tracks, try ISRC-first, then fuzzy match; add favorites;
-  upsert mapping; queue pending when ambiguous.
-- Playlists: list user-owned Spotify playlists; ensure a TIDAL playlist; build
-  ordered Spotify track list; map to TIDAL; add missing tracks; snapshot the
+- Tracks: fetch liked tracks, try ISRC-first, then fuzzy match; add to TIDAL favorites
+  and/or Apple Music library; upsert mapping; queue pending when ambiguous.
+- Playlists: list user-owned Spotify playlists; ensure a TIDAL/Apple Music playlist; build
+  ordered Spotify track list; map to TIDAL/Apple Music; add missing tracks; snapshot the
   ordered results into `playlist_track`.
 
 ## Matching rules
@@ -147,6 +150,43 @@ Long-running syncs:
   - Per-playlist logs include: `mapped`, `existing_on_tidal`, `to_add`,
     `added_to_tidal`, and when applicable `retrying missing`.
 
+- Apple Music authentication
+  - Requires two tokens: Developer Token (JWT, ES256) and Music User Token (via MusicKit JS).
+  - Developer Token is generated on-demand and cached; uses env vars: `APPLE_MUSIC_TEAM_ID`,
+    `APPLE_MUSIC_KEY_ID`, `APPLE_MUSIC_PRIVATE_KEY_PATH`.
+  - Music User Token is obtained via browser popup and stored in `tokens` table.
+  - All API calls use both tokens: `Authorization: Bearer <dev_token>` and `Music-User-Token: <user_token>`.
+
+- Apple Music matching
+  - ISRC-first: use `filter[isrc]=` for exact catalog match (score 1000).
+  - Fallback: fuzzy search with normalized title/artist and duration tolerance.
+  - High confidence threshold (≥95 overall or ISRC match ≥900) for auto-match.
+  - Storefront matters: searches are scoped to user's storefront (detected via API).
+
+- Apple Music playlist adds
+  - Chunk at 100 tracks per batch; API accepts JSON array of `{ id, type: "songs" }` objects.
+  - Use catalog IDs (not library IDs) for playlist operations.
+  - Retry per-item on partial failures; re-fetch playlist to verify additions.
+  - No `allow_duplicates` flag; API skips duplicates automatically.
+
+- Apple Music library adds
+  - Chunk at 100 tracks per batch via POST `/v1/me/library`.
+  - Use catalog IDs; duplicates are skipped automatically.
+  - No "like" or "love" flag support; tracks are simply added to library.
+
+- Counters semantics (Apple Music playlists)
+  - `created` increments when a new Apple Music playlist is created.
+  - `updated` increments only when a pre-existing Apple Music playlist actually had
+    tracks added during this run.
+
+- Skipping logic (Apple Music)
+  - Skips are based on what is already present in the Apple Music playlist or library, not on
+    local DB mappings. DB is used for mapping only.
+
+- Logs (Apple Music)
+  - Per-playlist logs include: `mapped`, `existing_on_apple`, `to_add`,
+    `added_to_apple`, and when applicable `retrying missing`.
+
 ## Low-resource runs
 
 - Favor pure-Python IO stack to avoid large native deps.
@@ -159,10 +199,13 @@ uv run --with uvicorn uvicorn app.main:app \
 ## Known limits and behaviors
 
 - TIDAL favorites have practical limits (~10k per category) based on public reports.
+- Apple Music does not support programmatic artist following/favoriting via public API.
+- Apple Music "love/dislike" flags are read-only; we add tracks to library instead.
+- Storefront/region availability varies for Apple Music; some tracks may not be available in all regions.
 - Large playlists can vary by client/API; additions are chunked and duplicates
   are skipped.
 - The per-playlist snapshot reflects Spotify order at the time of sync;
-  subsequent edits on TIDAL are not back-propagated.
+  subsequent edits on TIDAL/Apple Music are not back-propagated.
 
 If you need a deep dive into playlist specifics, see [docs/PLAYLISTS.md](docs/PLAYLISTS.md).
 
