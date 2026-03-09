@@ -9,7 +9,7 @@
       <span style="margin-left:12px;">TIDAL: <a href="https://tidal.com/browse/playlist/{{ playlist.tidal_id }}" target="_blank" rel="noopener">open</a></span>
     {% endif %}
     {% if playlist.apple_id %}
-      <span style="margin-left:12px;">Apple Music: <span title="Apple Music ID: {{ playlist.apple_id }}">✓</span></span>
+      <span style="margin-left:12px;">Apple Music: <a href="https://music.apple.com/library/playlist/{{ playlist.apple_id }}" target="_blank" rel="noopener" title="Apple Music ID: {{ playlist.apple_id }}">open</a></span>
     {% endif %}
   </div>
   {% if playlist.tidal_id and playlist.apple_id %}
@@ -96,8 +96,10 @@
             <td class="hide-sm">
               {% if it.target_service == 'tidal' and it.target_track_id %}
                 <a href="https://tidal.com/browse/track/{{ it.target_track_id }}" target="_blank" rel="noopener">{{ it.target_title or '—' }}</a>
+              {% elif it.target_service == 'apple' and it.target_track_id and it.target_title %}
+                <a href="https://music.apple.com/search?term={{ it.target_title | urlencode }}" target="_blank" rel="noopener" title="Apple Music ID: {{ it.target_track_id }}">{{ it.target_title }}</a>
               {% elif it.target_service == 'apple' and it.target_track_id %}
-                <span title="Apple Music ID: {{ it.target_track_id }}">{{ it.target_title or '—' }}</span>
+                <span title="Apple Music ID: {{ it.target_track_id }}">—</span>
               {% elif it.tidal_track_id %}
                 <a href="https://tidal.com/browse/track/{{ it.tidal_track_id }}" target="_blank" rel="noopener">{{ it.tidal_title or '—' }}</a>
               {% else %}
@@ -105,7 +107,9 @@
               {% endif %}
             </td>
             <td class="hide-sm">
-              {% if it.target_artist %}
+              {% if it.target_service == 'apple' and it.target_artist %}
+                <a href="https://music.apple.com/search?term={{ it.target_artist | urlencode }}" target="_blank" rel="noopener">{{ it.target_artist }}</a>
+              {% elif it.target_artist %}
                 {{ it.target_artist }}
               {% elif it.tidal_artist %}
                 {{ it.tidal_artist }}

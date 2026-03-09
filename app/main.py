@@ -2826,6 +2826,7 @@ async def library_tracks(request: Request):
     q = request.query_params.get("q") or None
     sort = request.query_params.get("sort") or "last_synced_at"
     order = request.query_params.get("order") or "desc"
+    service = request.query_params.get("service") or None
     try:
         page = int(request.query_params.get("page") or 1)
     except ValueError:
@@ -2848,6 +2849,7 @@ async def library_tracks(request: Request):
             order=order,
             page=page,
             page_size=page_size,
+            target_service=service,
         )
     pages = (total + page_size - 1) // page_size if page_size else 1
     if page < 1:
@@ -2867,6 +2869,7 @@ async def library_tracks(request: Request):
             "sort": sort,
             "order": order,
             "q": q or "",
+            "service": service or "",
         },
     )
 

@@ -1120,10 +1120,16 @@ def list_synced_tracks(
     order: str = "desc",
     page: int = 1,
     page_size: int = 50,
+    target_service: str | None = None,
 ) -> tuple[list[dict[str, Any]], int]:
     from sqlalchemy import func, or_
 
     q = db.query(TrackMap).filter(TrackMap.target_id.isnot(None))
+
+    # Filter by service if specified
+    if target_service:
+        q = q.filter(TrackMap.target_service == target_service)
+
     if search:
         s = f"%{search.lower()}%"
         q = q.filter(

@@ -6,6 +6,12 @@
     <input type="text" name="q" value="{{ q }}" placeholder="Search tracks…" />
     <input type="hidden" name="sort" value="{{ sort }}" />
     <input type="hidden" name="order" value="{{ order }}" />
+    <label for="service-filter" style="margin-left:8px;">Service:</label>
+    <select id="service-filter" name="service">
+      <option value="" {% if not service %}selected{% endif %}>All</option>
+      <option value="tidal" {% if service == 'tidal' %}selected{% endif %}>TIDAL</option>
+      <option value="apple" {% if service == 'apple' %}selected{% endif %}>Apple Music</option>
+    </select>
     {% set sizes = [10,25,100,250,1000,2500] %}
     <label for="psize" style="margin-left:8px;">Page size:</label>
     <select id="psize" name="page_size">
@@ -15,11 +21,11 @@
       <option value="all" {% if page_size == 0 %}selected{% endif %}>all</option>
     </select>
     <button class="btn" type="submit">Apply</button>
-    {% if q %}
+    {% if q or service %}
     <a class="btn" href="/library/tracks">Clear</a>
     {% endif %}
   </form>
-  <p>Showing {{ count }} of {{ total }} tracks.</p>
+  <p>Showing {{ count }} of {{ total }} tracks{% if service %} ({{ service }}){% endif %}.</p>
   {% if not items %}
     <p>No synced tracks yet. Run a sync, then check back.</p>
   {% else %}
@@ -29,15 +35,16 @@
         <tr>
           {% set next_order = 'asc' if order=='desc' else 'desc' %}
           {% set page_size_param = 'all' if page_size == 0 else page_size %}
-          <th><a href="/library/tracks?sort=last_synced_at&order={{ next_order if sort=='last_synced_at' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}">Last Synced{% if sort=='last_synced_at' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          {% set service_param = '&service=' + service if service else '' %}
+          <th><a href="/library/tracks?sort=last_synced_at&order={{ next_order if sort=='last_synced_at' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}{{ service_param }}">Last Synced{% if sort=='last_synced_at' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th>Service</th>
-          <th><a href="/library/tracks?sort=spotify_title&order={{ next_order if sort=='spotify_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Title{% if sort=='spotify_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
-          <th><a href="/library/tracks?sort=spotify_artist&order={{ next_order if sort=='spotify_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Artist{% if sort=='spotify_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/tracks?sort=spotify_title&order={{ next_order if sort=='spotify_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}{{ service_param }}">Spotify Title{% if sort=='spotify_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/tracks?sort=spotify_artist&order={{ next_order if sort=='spotify_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}{{ service_param }}">Spotify Artist{% if sort=='spotify_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th class="num">Duration</th>
           <th class="hide-sm">Target Title</th>
           <th class="hide-sm">Target Artist</th>
           <th class="hide-sm">ISRC</th>
-          <th class="num"><a href="/library/tracks?sort=confidence&order={{ next_order if sort=='confidence' else 'desc' }}&q={{ q }}&page_size={{ page_size }}">Confidence{% if sort=='confidence' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th class="num"><a href="/library/tracks?sort=confidence&order={{ next_order if sort=='confidence' else 'desc' }}&q={{ q }}&page_size={{ page_size }}{{ service_param }}">Confidence{% if sort=='confidence' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
         </tr>
       </thead>
       <tbody>
@@ -79,8 +86,8 @@
             <td class="hide-sm">
               {% if it.target_service == 'tidal' and it.target_id %}
                 <a href="https://tidal.com/browse/track/{{ it.target_id }}" target="_blank">{{ it.target_title }}</a>
-              {% elif it.target_service == 'apple' and it.target_id %}
-                <span title="Apple Music ID: {{ it.target_id }}">{{ it.target_title }}</span>
+              {% elif it.target_service == 'apple' and it.target_id and it.target_title %}
+                <a href="https://music.apple.com/search?term={{ it.target_title | urlencode }}" target="_blank" rel="noopener" title="Apple Music ID: {{ it.target_id }}">{{ it.target_title }}</a>
               {% elif it.target_title %}
                 {{ it.target_title }}
               {% else %}
@@ -92,6 +99,8 @@
                 <a href="https://tidal.com/browse/artist/{{ it.target_artist_id }}" target="_blank" rel="noopener">{{ it.target_artist }}</a>
               {% elif it.target_service == 'tidal' and it.target_artist %}
                 <a href="https://tidal.com/search?q={{ it.target_artist | urlencode }}" target="_blank" rel="noopener">{{ it.target_artist }}</a>
+              {% elif it.target_service == 'apple' and it.target_artist %}
+                <a href="https://music.apple.com/search?term={{ it.target_artist | urlencode }}" target="_blank" rel="noopener">{{ it.target_artist }}</a>
               {% elif it.target_artist %}
                 {{ it.target_artist }}
               {% else %}

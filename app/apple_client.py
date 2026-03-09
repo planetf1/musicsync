@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import time
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ import jwt
 from dotenv import load_dotenv
 
 from .storage import SessionLocal, load_token, save_token
+
+_log = logging.getLogger(__name__)
 
 APPLE_SERVICE = "apple"
 APPLE_BASE_URL = "https://api.music.apple.com/v1"
@@ -186,11 +189,32 @@ class AppleMusicClient:
                 developer_refreshed = True
                 continue
 
+            # Log rate limit headers for observability
+            rate_limit = response.headers.get("X-RateLimit-Limit")
+            rate_remaining = response.headers.get("X-RateLimit-Remaining")
+            rate_reset = response.headers.get("X-RateLimit-Reset")
+            if rate_limit or rate_remaining or rate_reset:
+                _log.debug(
+                    "Apple Music API rate limit: limit=%s, remaining=%s, reset=%s",
+                    rate_limit,
+                    rate_remaining,
+                    rate_reset,
+                )
+
             if response.status_code in (429, 500, 502, 503, 504) and attempt < self.max_retries:
                 delay = self.backoff_seconds * (2**attempt)
                 retry_after = response.headers.get("Retry-After")
                 if retry_after:
                     delay = max(delay, float(_as_int(retry_after, 0) or 0))
+                _log.warning(
+                    "Apple Music API %s %s: HTTP %d, retrying after %.1fs (attempt %d/%d)",
+                    method,
+                    path,
+                    response.status_code,
+                    delay,
+                    attempt + 1,
+                    self.max_retries,
+                )
                 time.sleep(delay)
                 continue
 
