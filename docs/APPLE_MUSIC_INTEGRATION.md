@@ -2,7 +2,7 @@
 
 Status: **Implemented** (playlists and liked tracks)
 Owners: Contributors / Maintainers
-Last updated: 2025-01-09
+Last updated: 2026-03-09
 
 ## Implementation Summary
 
@@ -235,6 +235,35 @@ Mocking:
 - Regional/storefront mismatches can cause unavailability; log and queue for manual review.
 - Library size limits may apply; warn on very large migrations.
 
+### Research update (2026-03-09): artist follow/favorite capability
+
+Result: **not supported** for programmatic write operations in Apple Music API.
+
+Evidence from Apple documentation:
+
+- `Artists` API lists only retrieval operations for catalog/library artists and
+  relationship fetches (no create/update/delete/follow endpoints):
+  <https://developer.apple.com/documentation/applemusicapi/artists-api>
+- `Get a Library Artist` and `Get All Library Artists` are explicitly `GET`
+  endpoints and return resource data only:
+  <https://developer.apple.com/documentation/applemusicapi/get-a-library-artist>
+  <https://developer.apple.com/documentation/applemusicapi/get-all-library-artists>
+- User write capabilities documented by Apple focus on playlists and library
+  resources, e.g.:
+  - Create playlist: <https://developer.apple.com/documentation/applemusicapi/create-a-new-library-playlist>
+  - Add tracks to playlist: <https://developer.apple.com/documentation/applemusicapi/add-tracks-to-a-library-playlist>
+  - Add resource to library: <https://developer.apple.com/documentation/applemusicapi/add-a-resource-to-a-library>
+- Ratings writes exist for songs/albums/playlists/videos/stations, but not
+  artists:
+  <https://developer.apple.com/documentation/applemusicapi/ratings-api>
+
+Decision for MusicSync:
+
+- Keep "Followed artists" sync as **Spotify → TIDAL only**.
+- For Apple Music, continue syncing liked tracks and playlists.
+- Optional future fallback: generate an Apple playlist (for example
+  "Followed Artists from Spotify") populated with representative tracks.
+
 ---
 
 ## Rollout Plan
@@ -326,7 +355,9 @@ Total: ~1.5–2.5 weeks elapsed including setup and review.
 
 ### Future Enhancements
 
-- Add unit tests for `AppleMusicClient` (tracked in `musicsync-w88`).
-- Research Apple Music artist following capability via API (tracked in `musicsync-6jn`).
+- Add integration tests for end-to-end Apple sync flows (live-account,
+  environment-guarded).
+- Optional: implement a configurable fallback playlist for Spotify followed
+  artists on Apple Music (representative-track strategy).
 - Explore strict mirroring mode for playlists (remove extras on Apple that aren't in Spotify).
 - UI refinements: feature flag toggle, improved pending resolution filtering.
