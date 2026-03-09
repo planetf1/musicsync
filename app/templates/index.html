@@ -67,6 +67,15 @@
       {% endif %}
     </li>
     {% endif %}
+    {% if apple_enabled %}
+    <li>
+      Apple Music:
+      <strong class="{{ 'status-connected' if apple_ok else 'status-disconnected' }}">{{ 'Connected' if apple_ok else 'Not Connected' }}</strong>
+      {% if not apple_ok %}
+        <a class="btn" href="/auth/apple/connect">Connect Apple Music</a>
+      {% endif %}
+    </li>
+    {% endif %}
   </ul>
   <div class="actions">
     {% if tidal_enabled %}

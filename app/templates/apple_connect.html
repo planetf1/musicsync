@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block content %}
+<section>
+  <h2>Connect Apple Music</h2>
+
+  <div id="status-message" style="margin-bottom: 16px;"></div>
+
+  <div id="apple-music-authorize"></div>
+
+  <script src="https://js-cdn.music.apple.com/musickit/v3/musickit.js" async></script>
+  <script>
+    document.addEventListener('musickitloaded', async function() {
+      try {
+        // Configure MusicKit with developer token
+        const response = await fetch('/auth/apple/developer-token');
+        const data = await response.json();
+
+        if (!data.token) {
+          showStatus('Error: Unable to obtain developer token', 'error');
+          return;
+        }
+
+        await MusicKit.configure({
+          developerToken: data.token,
+          app: {
+            name: '{{ app_name }}',
+            build: '{{ app_build }}'
+          }
+        });
+
+        const music = MusicKit.getInstance();
+
+        // Create authorize button
+        const container = document.getElementById('apple-music-authorize');
+        const button = document.createElement('button');
+        button.className = 'btn';
+        button.textContent = 'Authorize Apple Music';
+        button.onclick = async () => {
+          try {
+            button.disabled = true;
+            showStatus('Authorizing...', 'info');
+
+            const musicUserToken = await music.authorize();
+
+            // Send the token to our backend
+            const storeResponse = await fetch('/auth/apple/token', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                music_user_token: musicUserToken
+              })
+            });
+
+            if (storeResponse.ok) {
+              showStatus('Successfully connected to Apple Music! Redirecting...', 'success');
+              setTimeout(() => {
+                window.location.href = '/';
+              }, 1500);
+            } else {
+              const errorData = await storeResponse.json();
+              showStatus('Error saving token: ' + (errorData.detail || 'Unknown error'), 'error');
+              button.disabled = false;
+            }
+          } catch (error) {
+            showStatus('Authorization failed: ' + error.message, 'error');
+            button.disabled = false;
+          }
+        };
+        container.appendChild(button);
+
+        // Check if already authorized
+        if (music.isAuthorized) {
+          showStatus('Already authorized. You can close this page.', 'success');
+          button.textContent = 'Re-authorize Apple Music';
+        }
+
+      } catch (error) {
+        showStatus('Error initializing MusicKit: ' + error.message, 'error');
+      }
+    });
+
+    function showStatus(message, type) {
+      const statusDiv = document.getElementById('status-message');
+      statusDiv.textContent = message;
+      statusDiv.className = 'status-' + type;
+      statusDiv.style.padding = '12px';
+      statusDiv.style.borderRadius = '4px';
+      statusDiv.style.marginBottom = '16px';
+
+      if (type === 'error') {
+        statusDiv.style.backgroundColor = '#fee';
+        statusDiv.style.color = '#c00';
+      } else if (type === 'success') {
+        statusDiv.style.backgroundColor = '#efe';
+        statusDiv.style.color = '#060';
+      } else {
+        statusDiv.style.backgroundColor = '#eef';
+        statusDiv.style.color = '#006';
+      }
+    }
+  </script>
+</section>
+{% endblock %}

@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from tidalapi import artist as tidal_artist
 
+from .apple_client import get_apple_client
 from .matching import ArtistCandidate, score_artist_match
 from .spotify_client import call_spotify, exchange_code_for_token, get_authorize_url, get_spotify_client
 from .storage import (
@@ -71,6 +72,8 @@ init_db()
 
 # Configuration: TIDAL can be disabled via environment variable
 TIDAL_ENABLED = os.getenv("TIDAL_ENABLED", "true").lower() in ("true", "1", "yes")
+# Configuration: Apple Music can be disabled via environment variable
+APPLE_ENABLED = os.getenv("APPLE_ENABLED", "true").lower() in ("true", "1", "yes")
 
 templates = Jinja2Templates(directory="app/templates")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -211,6 +214,16 @@ async def index(request: Request):
         except Exception:
             tidal_ok = False
 
+    apple_ok = False
+    if APPLE_ENABLED:
+        try:
+            client = get_apple_client()
+            token = client.get_music_user_token()
+            if token:
+                apple_ok = True
+        except Exception:
+            apple_ok = False
+
     return templates.TemplateResponse(
         "index.html",
         {
@@ -218,6 +231,8 @@ async def index(request: Request):
             "spotify_ok": spotify_ok,
             "tidal_ok": tidal_ok,
             "tidal_enabled": TIDAL_ENABLED,
+            "apple_ok": apple_ok,
+            "apple_enabled": APPLE_ENABLED,
         },
     )
 
@@ -268,6 +283,107 @@ async def tidal_status():
             "error": state.get("error"),
         }
     )
+
+
+# --- Apple Music Authentication ---
+
+
+@app.get("/auth/apple/connect", response_class=HTMLResponse)
+async def apple_connect(request: Request):
+    if not APPLE_ENABLED:
+        raise HTTPException(status_code=400, detail="Apple Music integration is disabled")
+
+    app_name = os.getenv("APPLE_MUSICKIT_APP_NAME", "MusicSync")
+    app_build = os.getenv("APPLE_MUSICKIT_APP_BUILD", "1.0.0")
+
+    return templates.TemplateResponse(
+        "apple_connect.html",
+        {
+            "request": request,
+            "app_name": app_name,
+            "app_build": app_build,
+        },
+    )
+
+
+@app.get("/auth/apple/developer-token")
+async def apple_developer_token():
+    if not APPLE_ENABLED:
+        raise HTTPException(status_code=400, detail="Apple Music integration is disabled")
+
+    try:
+        client = get_apple_client()
+        token = client.get_developer_token()
+        return JSONResponse({"token": token})
+    except Exception as e:
+        logging.exception("Failed to generate Apple Music developer token")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/auth/apple/token")
+async def apple_token(request: Request):
+    if not APPLE_ENABLED:
+        raise HTTPException(status_code=400, detail="Apple Music integration is disabled")
+
+    try:
+        body = await request.json()
+        music_user_token = body.get("music_user_token")
+
+        if not music_user_token:
+            raise HTTPException(status_code=400, detail="Missing music_user_token")
+
+        client = get_apple_client()
+        # Set the token and try to fetch storefront to validate it
+        storefront = None
+        try:
+            client.set_music_user_token(music_user_token)
+            storefront = client.get_storefront()
+        except Exception as e:
+            logging.exception("Failed to validate Apple Music user token")
+            raise HTTPException(status_code=400, detail=f"Invalid token: {e}")
+
+        return JSONResponse(
+            {
+                "status": "success",
+                "storefront": storefront,
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.exception("Failed to store Apple Music user token")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/auth/apple/status")
+async def apple_status():
+    if not APPLE_ENABLED:
+        raise HTTPException(status_code=400, detail="Apple Music integration is disabled")
+
+    try:
+        client = get_apple_client()
+        user_token = client.get_music_user_token()
+        connected = bool(user_token)
+        storefront = None
+        if connected:
+            try:
+                storefront = client.get_storefront()
+            except Exception:
+                connected = False
+
+        return JSONResponse(
+            {
+                "connected": connected,
+                "storefront": storefront,
+            }
+        )
+    except Exception:
+        return JSONResponse(
+            {
+                "connected": False,
+                "storefront": None,
+            }
+        )
 
 
 # --- Sync Followed Artists ---

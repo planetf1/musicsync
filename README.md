@@ -1,8 +1,8 @@
 # MusicSync
 
-Sync your Spotify library to TIDAL with a friendly web UI, idempotent
-operations, and clear progress. Focus areas: followed artists, liked tracks,
-and user-owned playlists.
+Sync your Spotify library to TIDAL and Apple Music with a friendly web UI,
+idempotent operations, and clear progress. Focus areas: followed artists, liked
+tracks, and user-owned playlists.
 
 Looking for a quick visual tour? See the Screenshots & Feature Guide:
 
@@ -13,6 +13,7 @@ Looking for a quick visual tour? See the Screenshots & Feature Guide:
 - Connect accounts
   - Spotify OAuth (Spotipy)
   - TIDAL device login (tidalapi)
+  - Apple Music authentication (MusicKit JS)
 - Followed artists (Spotify → TIDAL Favorites)
   - Robust normalization (diacritics, punctuation, “The” stripping, parentheticals)
   - Fuzzy matching using rapidfuzz
@@ -53,7 +54,11 @@ SPOTIFY_REDIRECT_URI=http://localhost:8000/auth/spotify/callback
 # Set to 'false', '0', or 'no' to disable TIDAL sync
 TIDAL_ENABLED=true
 
-# Apple Music integration (for Apple sync target)
+# Optional: disable Apple Music integration (default: enabled)
+# Set to 'false', '0', or 'no' to disable Apple Music sync
+APPLE_ENABLED=true
+
+# Apple Music integration (requires Apple Developer account with MusicKit key)
 APPLE_MUSIC_TEAM_ID=<your Apple Developer Team ID>
 APPLE_MUSIC_KEY_ID=<your MusicKit key ID>
 APPLE_MUSIC_PRIVATE_KEY_PATH=/absolute/path/to/AuthKey_XXXXXXXXXX.p8
