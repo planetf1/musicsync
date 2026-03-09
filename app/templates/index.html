@@ -301,6 +301,72 @@
   <hr />
   {% if apple_enabled %}
   <div class="actions">
+    <button id="btn-sync-apple-followed-artists" class="btn" onclick="startAppleFollowedArtistsFallbackSync()" {% if not (spotify_ok and apple_ok) %}disabled{% endif %}>Create/Update Followed Artists Playlist (Spotify → Apple Music)</button>
+    <div id="apple-followed-artists-sync-progress" style="margin-top:8px"></div>
+    <script>
+      let appleFollowedArtistsSyncTimer;
+      async function startAppleFollowedArtistsFallbackSync(){
+        const btn = document.getElementById('btn-sync-apple-followed-artists');
+        const div = document.getElementById('apple-followed-artists-sync-progress');
+        btn.disabled = true;
+        div.textContent = 'Starting Apple Music followed-artists fallback sync…';
+        try{
+          const debugLimit = document.getElementById('chk-limit-apple-followed-artists-25')?.checked ? 25 : 0;
+          const url = debugLimit
+            ? ('/sync/apple/followed-artists-playlist/start?limit=' + debugLimit)
+            : '/sync/apple/followed-artists-playlist/start';
+          const resp = await fetch(url, {method:'POST'});
+          if(!resp.ok){ div.textContent = 'Failed to start Apple Music followed-artists fallback sync.'; btn.disabled = false; return; }
+          const data = await resp.json();
+          pollAppleFollowedArtistsFallbackSync(data.job_id);
+        }catch(e){
+          div.textContent = 'Error starting Apple Music followed-artists fallback sync: ' + e;
+          btn.disabled = false;
+        }
+      }
+      async function pollAppleFollowedArtistsFallbackSync(jobId){
+        if(appleFollowedArtistsSyncTimer) clearInterval(appleFollowedArtistsSyncTimer);
+        const div = document.getElementById('apple-followed-artists-sync-progress');
+        const render = async () => {
+          try{
+            const r = await fetch('/sync/apple/followed-artists-playlist/status?job_id='+encodeURIComponent(jobId));
+            if(!r.ok){ div.textContent = 'Apple Music followed-artists fallback sync status unavailable'; return; }
+            const s = await r.json();
+            if(s.state === 'error'){
+              div.innerHTML = `<span class="status-disconnected">Error: ${s.error||'unknown'}</span>`;
+              clearInterval(appleFollowedArtistsSyncTimer);
+              document.getElementById('btn-sync-apple-followed-artists').disabled = false;
+              return;
+            }
+            const total = s.total ?? 0;
+            const processed = s.processed ?? 0;
+            const mapped = s.mapped ?? 0;
+            const unavailable = s.unavailable ?? 0;
+            const added = s.added_to_apple ?? 0;
+            const playlistName = s.playlist_name || 'Followed Artists from Spotify';
+            if(s.state === 'done'){
+              div.innerHTML = `<span class="status-connected">Done.</span> Artists: ${total}, mapped: ${mapped}, unavailable: ${unavailable}, tracks added: ${added}. Playlist: <strong>${playlistName}</strong>.`;
+              clearInterval(appleFollowedArtistsSyncTimer);
+              document.getElementById('btn-sync-apple-followed-artists').disabled = false;
+              return;
+            }
+            div.textContent = `Syncing Apple followed-artists fallback… ${processed}/${total} (mapped: ${mapped}, unavailable: ${unavailable})`;
+          }catch(e){
+            div.textContent = 'Error reading status: ' + e;
+          }
+        };
+        await render();
+        appleFollowedArtistsSyncTimer = setInterval(render, 2000);
+      }
+    </script>
+  </div>
+  <div style="margin-top:6px">
+    <label><input type="checkbox" id="chk-limit-apple-followed-artists-25" /> Debug: limit to first 25 artists</label>
+  </div>
+  {% endif %}
+  <hr />
+  {% if apple_enabled %}
+  <div class="actions">
     <button id="btn-sync-apple-playlists" class="btn" onclick="startApplePlaylistSync()" {% if not (spotify_ok and apple_ok) %}disabled{% endif %}>Sync Playlists (Spotify → Apple Music)</button>
     <a class="btn secondary" href="/library/playlists" style="margin-left:8px;">View Playlists</a>
     <div id="apple-playlist-sync-progress" style="margin-top:8px"></div>

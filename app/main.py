@@ -74,6 +74,7 @@ init_db()
 TIDAL_ENABLED = os.getenv("TIDAL_ENABLED", "true").lower() in ("true", "1", "yes")
 # Configuration: Apple Music can be disabled via environment variable
 APPLE_ENABLED = os.getenv("APPLE_ENABLED", "true").lower() in ("true", "1", "yes")
+APPLE_FOLLOWED_ARTISTS_PLAYLIST_NAME = "Followed Artists from Spotify"
 
 templates = Jinja2Templates(directory="app/templates")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
@@ -1704,7 +1705,8 @@ def _run_sync_apple_playlists_job(job_id: str, limit: int = 0) -> None:
                     apple_pl_id = apple_pl["id"]
                     created += 1
 
-                # TODO: Get existing Apple Music playlist tracks to skip duplicates
+                # Existing Apple playlist tracks are not fetched yet; rely on
+                # Apple Music duplicate handling for now.
                 # For now, we'll rely on Apple Music's duplicate handling
                 existing_ids: set[str] = set()
 
@@ -1890,6 +1892,227 @@ def _run_sync_apple_playlists_job(job_id: str, limit: int = 0) -> None:
         _job_set(job_id, state="error", error=str(e))
 
 
+def _run_sync_apple_followed_artists_playlist_job(job_id: str, limit: int = 0) -> None:
+    """Create/update an Apple Music playlist representing Spotify followed artists.
+
+    Since Apple Music API doesn't expose artist follow/favorite write endpoints,
+    this job builds a deterministic fallback playlist with one representative
+    track per followed artist.
+    """
+    _job_set(job_id, state="running", started_at=datetime.now(UTC).isoformat())
+    try:
+        # Check Spotify auth
+        try:
+            get_spotify_client()
+        except Exception as e:
+            _job_set(job_id, state="error", error=str(e))
+            return
+
+        # Check Apple Music auth
+        try:
+            apple_client = get_apple_client()
+            storefront = apple_client.get_storefront()
+        except Exception as e:
+            _job_set(job_id, state="error", error=str(e))
+            return
+
+        # Spotify market for top tracks (fallback to US)
+        market = "US"
+        try:
+            me = call_spotify(lambda sp: sp.me()) or {}
+            market = str(me.get("country") or "US").upper()
+        except Exception:
+            market = "US"
+
+        # Fetch followed artists
+        artists: list[dict[str, str]] = []
+        after: str | None = None
+        while True:
+            page = call_spotify(lambda sp, after=after: sp.current_user_followed_artists(limit=50, after=after)) or {}
+            artists_block = page.get("artists") or {}
+            items = artists_block.get("items") or []
+            for a in items:
+                aid = a.get("id")
+                aname = a.get("name")
+                if aid and aname:
+                    artists.append({"id": str(aid), "name": str(aname)})
+            cursors = artists_block.get("cursors") or {}
+            after = cursors.get("after")
+            if not after:
+                break
+
+        if limit and limit > 0:
+            artists = artists[:limit]
+
+        total = len(artists)
+        _job_set(
+            job_id,
+            total=total,
+            processed=0,
+            mapped=0,
+            unavailable=0,
+            added_to_apple=0,
+            playlist_name=APPLE_FOLLOWED_ARTISTS_PLAYLIST_NAME,
+        )
+
+        # Ensure playlist exists
+        preexisting = False
+        apple_playlist: dict[str, Any] | None = None
+        try:
+            existing = apple_client.list_library_playlists()
+            for p in existing:
+                if str(p.get("name") or "").strip().lower() == APPLE_FOLLOWED_ARTISTS_PLAYLIST_NAME.lower():
+                    apple_playlist = p
+                    preexisting = True
+                    break
+        except Exception:
+            apple_playlist = None
+
+        if not apple_playlist:
+            apple_playlist = apple_client.ensure_playlist(
+                APPLE_FOLLOWED_ARTISTS_PLAYLIST_NAME,
+                "Auto-generated fallback for Spotify followed artists",
+            )
+
+        apple_playlist_id = str(apple_playlist.get("id") or "")
+        if not apple_playlist_id:
+            _job_set(job_id, state="error", error="Failed to create or load Apple fallback playlist")
+            return
+
+        processed = 0
+        mapped = 0
+        unavailable = 0
+        apple_track_ids: list[str] = []
+
+        for art in artists:
+            sp_artist_id = art["id"]
+            sp_artist_name = art["name"]
+            try:
+                representative: dict[str, Any] | None = None
+
+                # Prefer Spotify top tracks for representative song
+                try:
+                    top = (
+                        call_spotify(
+                            lambda sp, sp_artist_id=sp_artist_id, market=market: sp.artist_top_tracks(
+                                sp_artist_id, country=market
+                            )
+                        )
+                        or {}
+                    )
+                    top_tracks = top.get("tracks") or []
+                    for t in top_tracks:
+                        tid = t.get("id")
+                        tname = t.get("name")
+                        if not tid or not tname:
+                            continue
+                        t_artists = t.get("artists") or []
+                        t_artist_name = (
+                            t_artists[0].get("name") if t_artists and isinstance(t_artists[0], dict) else sp_artist_name
+                        )
+                        t_duration_ms = t.get("duration_ms")
+                        t_isrc = (t.get("external_ids") or {}).get("isrc")
+                        representative = {
+                            "id": str(tid),
+                            "title": str(tname),
+                            "artist": str(t_artist_name or sp_artist_name),
+                            "duration": int(t_duration_ms / 1000) if t_duration_ms else None,
+                            "isrc": t_isrc,
+                        }
+                        break
+                except Exception:
+                    representative = None
+
+                if not representative:
+                    unavailable += 1
+                    continue
+
+                apple_track: dict[str, Any] | None = None
+
+                # ISRC-first match
+                if representative.get("isrc"):
+                    try:
+                        apple_track = apple_client.search_by_isrc(representative["isrc"], storefront)
+                    except Exception:
+                        apple_track = None
+
+                # Fuzzy fallback
+                if not apple_track:
+                    try:
+                        candidates = apple_client.search_track(
+                            title=representative["title"],
+                            artist=representative["artist"],
+                            duration_s=representative.get("duration"),
+                            storefront=storefront,
+                            limit=10,
+                        )
+                        ranked: list[dict[str, Any]] = []
+                        for c in candidates:
+                            score = _score_track_candidate(
+                                representative["title"],
+                                representative["artist"],
+                                representative.get("isrc"),
+                                representative.get("duration"),
+                                {
+                                    "id": c.get("id"),
+                                    "title": c.get("name"),
+                                    "artists": c.get("artists") or [],
+                                    "duration": int(c["duration_ms"] / 1000) if c.get("duration_ms") else None,
+                                    "isrc": c.get("isrc"),
+                                },
+                            )
+                            c2 = dict(c)
+                            c2["score"] = float(score)
+                            ranked.append(c2)
+                        ranked.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
+                        top_match = ranked[0] if ranked else None
+                        if top_match and (
+                            float(top_match.get("score", 0.0)) >= 80.0 or float(top_match.get("score", 0.0)) >= 900.0
+                        ):
+                            apple_track = top_match
+                    except Exception:
+                        apple_track = None
+
+                if apple_track and apple_track.get("id"):
+                    apple_track_ids.append(str(apple_track["id"]))
+                    mapped += 1
+                else:
+                    unavailable += 1
+            except Exception:
+                unavailable += 1
+            finally:
+                processed += 1
+                if processed % 10 == 0 or processed == total:
+                    _job_set(job_id, processed=processed, mapped=mapped, unavailable=unavailable)
+
+        # De-duplicate while preserving order
+        deduped_ids = list(dict.fromkeys(apple_track_ids))
+        added_to_apple = 0
+        if deduped_ids:
+            try:
+                result = apple_client.add_tracks_to_playlist(apple_playlist_id, deduped_ids)
+                added_to_apple = int(result.succeeded)
+            except Exception:
+                added_to_apple = 0
+
+        _job_set(
+            job_id,
+            state="done",
+            finished_at=datetime.now(UTC).isoformat(),
+            processed=processed,
+            total=total,
+            mapped=mapped,
+            unavailable=unavailable,
+            added_to_apple=added_to_apple,
+            playlist_id=apple_playlist_id,
+            playlist_name=APPLE_FOLLOWED_ARTISTS_PLAYLIST_NAME,
+            created=(0 if preexisting else 1),
+            updated=(1 if preexisting and added_to_apple > 0 else 0),
+        )
+    except Exception as e:
+        _job_set(job_id, state="error", error=str(e))
+
+
 @app.post("/sync/tracks/start")
 async def start_sync_tracks(request: Request):
     limit_param = request.query_params.get("limit")
@@ -1975,6 +2198,30 @@ async def start_sync_apple_playlists(request: Request):
 @app.get("/sync/apple/playlists/status")
 async def sync_apple_playlists_status(job_id: str):
     """Get status of Apple Music playlist sync job."""
+    with _jobs_lock:
+        data = _jobs.get(job_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="job not found")
+    return JSONResponse(data)
+
+
+@app.post("/sync/apple/followed-artists-playlist/start")
+async def start_sync_apple_followed_artists_playlist(request: Request):
+    """Start creating/updating fallback Apple playlist for Spotify followed artists."""
+    limit_param = request.query_params.get("limit")
+    try:
+        limit = int(limit_param) if limit_param else 0
+    except ValueError:
+        limit = 0
+    job_id = str(uuid.uuid4())
+    _job_set(job_id, state="pending", limit=limit)
+    threading.Thread(target=_run_sync_apple_followed_artists_playlist_job, args=(job_id, limit), daemon=True).start()
+    return JSONResponse({"job_id": job_id})
+
+
+@app.get("/sync/apple/followed-artists-playlist/status")
+async def sync_apple_followed_artists_playlist_status(job_id: str):
+    """Get status of fallback Apple followed-artists playlist sync job."""
     with _jobs_lock:
         data = _jobs.get(job_id)
     if not data:
