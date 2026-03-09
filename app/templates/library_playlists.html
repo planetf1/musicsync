@@ -75,10 +75,9 @@
         {% endfor %}
       </tbody>
     </table>
-            <td>
   <div class="pagination" style="margin-top:10px; display:flex; align-items:center; gap:8px; flex-wrap: wrap;">
     {% set prev_page = page - 1 %}
-            <td class="hide-sm">
+    {% set next_page = page + 1 %}
     {% set page_size_param = 'all' if page_size == 0 else page_size %}
     <span>Page {{ page }} of {{ pages }}</span>
     <a class="btn" href="/library/playlists?page={{ prev_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}" {% if page <= 1 %}style="pointer-events:none; opacity:0.5"{% endif %}>Prev</a>

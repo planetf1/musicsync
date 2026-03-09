@@ -10,6 +10,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -712,7 +713,7 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
 
         # Proactively clear any stale pending entries that are already resolved
         with SessionLocal() as db:
-            removed = cleanup_pending_for_resolved(db)
+            removed = cleanup_pending_for_resolved(db, target_service="tidal")
             if removed:
                 _log.info(f"[job {job_id}] Cleared {removed} stale pending entries for already-resolved artists")
 
@@ -749,7 +750,7 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
                 except Exception:
                     pass
 
-                top: ArtistCandidate | None
+                top: ArtistCandidate | None = None
                 if exact_candidate:
                     top = {"id": exact_candidate["id"], "name": exact_candidate["name"], "score": 100.0}
                 else:
@@ -772,7 +773,7 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
                         if sp_genres.get(sp_id):
                             update_artist_genres(db, sp_id, sp_genres.get(sp_id))
                         # Remove any stale pending entries for this artist now that it's resolved
-                        delete_pending_by_spotify_id(db, sp_id)
+                        delete_pending_by_spotify_id(db, sp_id, target_service="tidal")
                         add_artist_sync_event(db, sp_id, name, tid, str(top["name"]), "auto")
                     _log.info(f"[job {job_id}] Auto-matched '{name}' -> '{top['name']}' (score {top['score']:.0f})")
                     auto_matched += 1
@@ -988,7 +989,7 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
 
         # Cleanup stale pending
         with SessionLocal() as db:
-            removed = cleanup_pending_tracks_for_resolved(db)
+            removed = cleanup_pending_tracks_for_resolved(db, target_service="tidal")
             if removed:
                 _log.info("[job %s] Cleared %d stale pending tracks", job_id, removed)
 
@@ -1057,7 +1058,7 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
                             float(top.get("score", 0.0)),
                             True,
                         )
-                        delete_pending_track_by_spotify_id(db, spid)
+                        delete_pending_track_by_spotify_id(db, spid, target_service="tidal")
                         add_track_sync_event(
                             db,
                             spid,
@@ -1511,7 +1512,7 @@ def _run_sync_apple_likes_job(job_id: str, limit: int = 0) -> None:
 
         # Cleanup stale pending
         with SessionLocal() as db:
-            removed = cleanup_pending_tracks_for_resolved(db)
+            removed = cleanup_pending_tracks_for_resolved(db, target_service="apple")
             if removed:
                 _log.info("[job %s] Cleared %d stale pending tracks", job_id, removed)
 
@@ -1537,13 +1538,18 @@ def _run_sync_apple_likes_job(job_id: str, limit: int = 0) -> None:
             dur = tr.get("duration")
             try:
                 apple_track: dict[str, Any] | None = None
+                ranked_candidates: list[dict[str, Any]] = []
 
                 # Try ISRC-first match
                 if isrc:
                     try:
                         apple_track = apple_client.search_by_isrc(isrc, storefront)
+                    except httpx.HTTPStatusError as e:
+                        if e.response.status_code in (401, 403, 429, 500):
+                            raise
+                        apple_track = None
                     except Exception:
-                        pass
+                        apple_track = None
 
                 # Fallback to fuzzy search
                 if not apple_track:
@@ -1576,13 +1582,18 @@ def _run_sync_apple_likes_job(job_id: str, limit: int = 0) -> None:
                                 c2["score"] = float(score)
                                 ranked.append(c2)
                             ranked.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
+                            ranked_candidates = ranked
                             top = ranked[0] if ranked else None
 
                             # Accept high confidence matches (>= 95 or ISRC match >= 900)
                             if top and (float(top.get("score", 0.0)) >= 95.0 or float(top.get("score", 0.0)) >= 900.0):
                                 apple_track = top
+                    except httpx.HTTPStatusError as e:
+                        if e.response.status_code in (401, 403, 429, 500):
+                            raise
+                        apple_track = None
                     except Exception:
-                        pass
+                        apple_track = None
 
                 if apple_track:
                     # Extract Apple Music track details
@@ -1613,7 +1624,7 @@ def _run_sync_apple_likes_job(job_id: str, limit: int = 0) -> None:
                             True,
                             target_service="apple",
                         )
-                        delete_pending_track_by_spotify_id(db, tr["id"])
+                        delete_pending_track_by_spotify_id(db, tr["id"], target_service="apple")
                         add_track_sync_event(
                             db,
                             tr["id"],
@@ -1640,6 +1651,9 @@ def _run_sync_apple_likes_job(job_id: str, limit: int = 0) -> None:
                         try:
                             result = apple_client.add_tracks_to_library(apple_tracks_to_add)
                             added_to_library += result.succeeded
+                        except httpx.HTTPStatusError as e:
+                            if e.response.status_code in (401, 403, 429, 500):
+                                raise
                         except Exception:
                             pass
                         apple_tracks_to_add = []
@@ -1647,16 +1661,16 @@ def _run_sync_apple_likes_job(job_id: str, limit: int = 0) -> None:
                     # No match found, add to pending
                     with SessionLocal() as db:
                         # Store unmatched track in pending resolution queue
-                        if isinstance(apple_track, dict) and "score" in apple_track:
-                            # We have candidates but none met threshold
-                            add_pending_track_resolution(
-                                db, tr["id"], title, artist, isrc, [apple_track], target_service="apple"
-                            )
-                            confidence_score = float(apple_track.get("score", 0.0))
-                        else:
-                            # No candidates at all
-                            add_pending_track_resolution(db, tr["id"], title, artist, isrc, [], target_service="apple")
-                            confidence_score = 0.0
+                        add_pending_track_resolution(
+                            db,
+                            tr["id"],
+                            title,
+                            artist,
+                            isrc,
+                            ranked_candidates[:10],
+                            target_service="apple",
+                        )
+                        confidence_score = float(ranked_candidates[0].get("score", 0.0)) if ranked_candidates else 0.0
 
                         # Store partial mapping (unresolved)
                         upsert_track_map(
@@ -1677,6 +1691,11 @@ def _run_sync_apple_likes_job(job_id: str, limit: int = 0) -> None:
                             target_service="apple",
                         )
                         pending += 1
+            except httpx.HTTPStatusError as e:
+                # Re-raise critical errors to trigger job failure
+                if e.response.status_code in (401, 403, 429, 500):
+                    raise
+                pending += 1
             except Exception:
                 pending += 1
             finally:
@@ -1695,6 +1714,9 @@ def _run_sync_apple_likes_job(job_id: str, limit: int = 0) -> None:
             try:
                 result = apple_client.add_tracks_to_library(apple_tracks_to_add)
                 added_to_library += result.succeeded
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code in (401, 403, 429, 500):
+                    raise
             except Exception:
                 pass
 
@@ -1787,10 +1809,19 @@ def _run_sync_apple_playlists_job(job_id: str, limit: int = 0) -> None:
                     apple_pl_id = apple_pl["id"]
                     created += 1
 
-                # Existing Apple playlist tracks are not fetched yet; rely on
-                # Apple Music duplicate handling for now.
-                # For now, we'll rely on Apple Music's duplicate handling
+                # Fetch existing tracks from Apple playlist to avoid duplicates
                 existing_ids: set[str] = set()
+                if apple_pl_id:
+                    try:
+                        existing_tracks = apple_client.get_playlist_tracks(apple_pl_id)
+                        for et in existing_tracks:
+                            eid = et.get("id")
+                            if eid:
+                                existing_ids.add(str(eid))
+                    except Exception as e:
+                        _log.warning(
+                            "[job %s] Could not fetch existing tracks for Apple playlist %s: %s", job_id, apple_pl_id, e
+                        )
 
                 # Fetch Spotify playlist tracks in order
                 sp_track_ids: list[str] = []
@@ -1842,6 +1873,10 @@ def _run_sync_apple_playlists_job(job_id: str, limit: int = 0) -> None:
                     if meta.get("isrc"):
                         try:
                             apple_track = apple_client.search_by_isrc(meta["isrc"], storefront)
+                        except httpx.HTTPStatusError as e:
+                            if e.response.status_code in (401, 403, 429, 500):
+                                raise
+                            apple_track = None
                         except Exception:
                             pass
 
@@ -1879,8 +1914,14 @@ def _run_sync_apple_playlists_job(job_id: str, limit: int = 0) -> None:
                                     ranked.append(c2)
                                 ranked.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
                                 top = ranked[0] if ranked else None
-                                if top and float(top.get("score", 0.0)) >= 80.0:
+                                if top and (
+                                    float(top.get("score", 0.0)) >= 95.0 or float(top.get("score", 0.0)) >= 900.0
+                                ):
                                     apple_track = top
+                        except httpx.HTTPStatusError as e:
+                            if e.response.status_code in (401, 403, 429, 500):
+                                raise
+                            apple_track = None
                         except Exception:
                             pass
 
@@ -1910,8 +1951,12 @@ def _run_sync_apple_playlists_job(job_id: str, limit: int = 0) -> None:
                         result = apple_client.add_tracks_to_playlist(apple_pl_id, to_add_final)
                         added_count = result.succeeded
                         did_modify = added_count > 0
+                    except httpx.HTTPStatusError as e:
+                        if e.response.status_code in (401, 403, 429, 500):
+                            raise
+                        apple_track = None
                     except Exception:
-                        pass
+                        apple_track = None
 
                 _log.info(
                     "[job %s] Playlist '%s' (%s): added_to_apple=%d",
@@ -1956,6 +2001,9 @@ def _run_sync_apple_playlists_job(job_id: str, limit: int = 0) -> None:
                         )
                     replace_playlist_tracks(db, sp_pl_id, entries, target_service="apple")
 
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code in (401, 403, 429, 500):
+                    raise
             except Exception:
                 pass
             finally:
@@ -2130,7 +2178,12 @@ def _run_sync_apple_followed_artists_playlist_job(job_id: str, limit: int = 0, r
                 # ISRC-first match
                 if representative.get("isrc"):
                     try:
-                        apple_track = apple_client.search_by_isrc(representative["isrc"], storefront)
+                        isrc_to_search = str(representative["isrc"])
+                        apple_track = apple_client.search_by_isrc(isrc_to_search, storefront)
+                    except httpx.HTTPStatusError as e:
+                        if e.response.status_code in (401, 403, 429, 500):
+                            raise
+                        apple_track = None
                     except Exception:
                         apple_track = None
 
@@ -2165,9 +2218,13 @@ def _run_sync_apple_followed_artists_playlist_job(job_id: str, limit: int = 0, r
                         ranked.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
                         top_match = ranked[0] if ranked else None
                         if top_match and (
-                            float(top_match.get("score", 0.0)) >= 80.0 or float(top_match.get("score", 0.0)) >= 900.0
+                            float(top_match.get("score", 0.0)) >= 95.0 or float(top_match.get("score", 0.0)) >= 900.0
                         ):
                             apple_track = top_match
+                    except httpx.HTTPStatusError as e:
+                        if e.response.status_code in (401, 403, 429, 500):
+                            raise
+                        apple_track = None
                     except Exception:
                         apple_track = None
 
@@ -2176,6 +2233,10 @@ def _run_sync_apple_followed_artists_playlist_job(job_id: str, limit: int = 0, r
                     mapped += 1
                 else:
                     unavailable += 1
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code in (401, 403, 429, 500):
+                    raise
+                unavailable += 1
             except Exception:
                 unavailable += 1
             finally:
@@ -2844,7 +2905,8 @@ async def library_playlists(request: Request):
             # attach stats for all to enable proper sorting
             for it in all_items:
                 try:
-                    it["stats"] = get_playlist_stats(db, it["spotify_id"])
+                    stats_service = "tidal" if it.get("tidal_id") else ("apple" if it.get("apple_id") else "tidal")
+                    it["stats"] = get_playlist_stats(db, it["spotify_id"], target_service=stats_service)
                 except Exception:
                     it["stats"] = {"count": 0, "total_seconds": 0}
             reverse = order.lower() == "desc"
@@ -2878,7 +2940,8 @@ async def library_playlists(request: Request):
             # Attach stats for visible items only
             for it in items:
                 try:
-                    it["stats"] = get_playlist_stats(db, it["spotify_id"])
+                    stats_service = "tidal" if it.get("tidal_id") else ("apple" if it.get("apple_id") else "tidal")
+                    it["stats"] = get_playlist_stats(db, it["spotify_id"], target_service=stats_service)
                 except Exception:
                     it["stats"] = {"count": 0, "total_seconds": 0}
             pages = (total + page_size - 1) // page_size if page_size else 1
@@ -2926,25 +2989,39 @@ async def library_playlist_detail(spotify_id: str, request: Request):
     with SessionLocal() as db:
         pl_tidal = get_playlist_map(db, spotify_id, target_service="tidal")
         pl_apple = get_playlist_map(db, spotify_id, target_service="apple")
-        # Use whichever exists, prefer TIDAL for backwards compatibility
-        pl = pl_tidal or pl_apple
+        requested_service = (request.query_params.get("service") or "").strip().lower()
+        pl: dict[str, Any] | None = None
+        # Use whichever exists, prefer TIDAL for backwards compatibility.
+        # Allow explicit override via ?service=apple|tidal when both mappings exist.
+        if requested_service == "apple" and pl_apple:
+            pl = pl_apple
+        elif requested_service == "tidal" and pl_tidal:
+            pl = pl_tidal
+        else:
+            pl = pl_tidal or pl_apple
         if not pl:
             raise HTTPException(status_code=404, detail="Playlist not found")
+        target_service = str(pl.get("target_service") or "tidal")
         # Merge both service mappings into one dict for template
         playlist_info = dict(pl)
+        playlist_info["selected_service"] = target_service
         if pl_apple:
             playlist_info["apple_id"] = pl_apple.get("target_id")
             playlist_info["apple_name"] = pl_apple.get("target_name")
+        if pl_tidal:
+            playlist_info["tidal_id"] = pl_tidal.get("target_id") or pl_tidal.get("tidal_id")
+            playlist_info["tidal_name"] = pl_tidal.get("target_name") or pl_tidal.get("tidal_name")
         items, total = list_playlist_tracks(
             db,
             spotify_id,
+            target_service=target_service,
             search=q,
             sort=sort,
             order=order,
             page=page,
             page_size=page_size,
         )
-        stats = get_playlist_stats(db, spotify_id)
+        stats = get_playlist_stats(db, spotify_id, target_service=target_service)
     pages = (total + page_size - 1) // page_size if page_size else 1
     if page < 1:
         page = 1

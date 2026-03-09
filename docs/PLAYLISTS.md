@@ -6,49 +6,50 @@ design choices and trade-offs.
 ## Scope
 
 - Source: user-owned Spotify playlists
-- Target: TIDAL playlists under the authenticated TIDAL user
-- Direction: one-way (Spotify → TIDAL)
+- Targets: TIDAL playlists and Apple Music playlists under the authenticated user
+- Direction: one-way (Spotify → target service)
 
 ## High-level flow
 
 1. Enumerate Spotify playlists owned by the current user.
 2. For each playlist:
-   - Ensure a corresponding TIDAL playlist exists (create if missing, reuse if mapped).
+   - Ensure a corresponding target playlist exists (create if missing, reuse if mapped).
    - Fetch the ordered list of Spotify tracks.
-   - Map each track to a TIDAL track id:
+   - Map each track to a target track id:
      - Prefer an existing `TrackMap` entry.
      - Otherwise, try ISRC-first; else fuzzy match with normalization and
        duration tolerance.
-   - Add any missing TIDAL track ids to the target playlist in chunks, skipping duplicates.
+   - Add any missing target track ids to the target playlist in chunks, skipping duplicates.
      - Addition uses multiple safe call variants for compatibility with different
-       tidalapi versions (int vs string IDs, with/without position, chunk vs
+       APIs/client versions (int vs string IDs, with/without position, chunk vs
        per-item) and then re-checks the playlist.
    - Persist a local snapshot of the playlist: ordered entries with Spotify
-     ids/titles/artists and the mapped TIDAL ids/titles/artists when known.
+     ids/titles/artists and the mapped target ids/titles/artists when known.
 
 ## Data model
 
-- `playlist_map` — maps Spotify playlist id → TIDAL playlist id, plus names and `last_synced_at`.
+- `playlist_map` — maps Spotify playlist id → target playlist id per `target_service`, plus names and `last_synced_at`.
 - `playlist_track` — ordered snapshot of a playlist’s content at sync time:
+  - `target_service` indicates which service snapshot row belongs to (`tidal` or `apple`)
   - `playlist_spotify_id`, `position` (1-based), `spotify_track_id`,
     `spotify_title`, `spotify_artist`
-  - Optional `tidal_track_id`, `tidal_title`, `tidal_artist`, `isrc`
+  - Optional service-specific target ids/titles/artists and `isrc`
   - `last_synced_at`
 
 ## Ordering
 
 - The `playlist_track` snapshot uses the Spotify track order at the moment of sync.
-- When the TIDAL playlist already exists, we do a set-like addition of missing
-  tracks; absolute ordering on TIDAL is not normalized by this job.
+- When the target playlist already exists, we do a set-like addition of missing
+  tracks; absolute target ordering is not normalized by this job.
 - The snapshot allows local browsing of a consistent order (from Spotify) even
   if the TIDAL playlist was previously edited.
 
 ## Idempotency
 
-- Additions to TIDAL playlists are chunked and deduplicated.
+- Additions to target playlists are chunked and deduplicated.
 - Re-running playlist sync updates the snapshot and adds any new tracks;
   existing tracks are not re-added. Skipping is based only on the live contents
-  of the TIDAL playlist, not on local DB mappings.
+  of the target playlist, not on local DB mappings.
 
 ## Implementation notes (robust adds)
 
@@ -90,15 +91,14 @@ These help diagnose whether mapped tracks were attempted and how many additions 
 
 ## Limits and cautions
 
-- TIDAL favorites and possibly playlist sizes have practical limits (public
-  reports suggest ~10k for favorites, playlist limits vary by client/API).
+- Service limits vary by provider (TIDAL/Apple Music) and client/API behavior.
 - Adding very large playlists can take time; the job reports progress.
 - TIDAL operations can fail transiently; additions are done in chunks with
   best-effort fallbacks.
 
 ## UI
 
-- Playlists Library shows mapped playlists and provides direct links to Spotify/TIDAL.
+- Playlists Library shows mapped playlists and provides direct links to Spotify/TIDAL, plus Apple Music mapping status.
 - Clicking a playlist name opens a detail page listing the locally stored
   ordered tracks with external links where available.
 

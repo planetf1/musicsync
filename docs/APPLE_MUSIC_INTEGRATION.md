@@ -96,6 +96,7 @@ Responsibilities:
 
 Key methods (interface sketch — not implementation):
 - `get_storefront(user_token) -> str`
+- `get_storefront() -> str`
 - `search_by_isrc(isrc: str, storefront: str) -> Optional[AppleTrack]`
 - `search_track(title: str, artist: str, duration_s: int, storefront: str) -> list[AppleTrack]`
 - `ensure_playlist(name: str, description: str | None) -> ApplePlaylist`
@@ -324,7 +325,9 @@ Total: ~1.5–2.5 weeks elapsed including setup and review.
 **Testing:**
 - Manual validation completed: Spotify + Apple Music connection, playlist sync, liked tracks sync, library browsing, pending resolution UI.
 - Pre-commit hooks (ruff, mypy) enforced code quality.
-- Unit tests for Apple client are tracked as future work (issue `musicsync-w88`).
+- Unit tests for Apple client and sync jobs are implemented in `tests/test_apple_client.py` and `tests/test_apple_sync_jobs.py`.
+- Matching thresholds have been standardized to 95 for high-confidence auto-matching.
+- Playlist synchronization now includes duplicate detection by fetching existing tracks first.
 
 **Known Deviations from Proposal:**
 - Effort estimate was ~1.5–2.5 weeks; actual implementation was ~2 days focused work (benefiting from existing patterns).
@@ -355,9 +358,6 @@ Total: ~1.5–2.5 weeks elapsed including setup and review.
 
 ### Future Enhancements
 
-- Add integration tests for end-to-end Apple sync flows (live-account,
-  environment-guarded).
-- Optional: implement a configurable fallback playlist for Spotify followed
-  artists on Apple Music (representative-track strategy).
+- Explore strict mirroring mode for playlists (remove extras on Apple that aren't in Spotify).
 - Explore strict mirroring mode for playlists (remove extras on Apple that aren't in Spotify).
 - UI refinements: feature flag toggle, improved pending resolution filtering.

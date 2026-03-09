@@ -114,7 +114,8 @@ class TestAppleLikesSyncJob:
         def _spotify_client():
             return object()
 
-        def _cleanup(_db):
+        def _cleanup(_db, target_service=None):
+            _ = target_service
             return 0
 
         def _noop(*args, **kwargs):
@@ -242,6 +243,61 @@ class TestAppleLikesSyncJob:
         assert status["pending_count"] == 1
         assert pending_calls, "Expected unmatched track to be queued for pending resolution"
         assert apple.add_calls == []
+
+    def test_unmatched_track_keeps_ranked_candidates_for_pending(self, monkeypatch: pytest.MonkeyPatch):
+        self._patch_common(monkeypatch)
+
+        spotify_pages = [
+            {
+                "items": [
+                    {
+                        "track": {
+                            "id": "sp4",
+                            "name": "Almost Match",
+                            "artists": [{"name": "Artist C", "id": "art4"}],
+                            "duration_ms": 180000,
+                            "external_ids": {},
+                        }
+                    }
+                ],
+                "next": None,
+            }
+        ]
+        monkeypatch.setattr(main, "call_spotify", StubSpotifyPager(spotify_pages))
+
+        apple = StubAppleClient(search_by_isrc_map={}, existing_library_ids=set())
+        apple.search_track = lambda **kwargs: [  # type: ignore[method-assign]
+            {
+                "id": "am-candidate-1",
+                "name": "Totally Different Song",
+                "artists": ["Unrelated Artist"],
+                "duration_ms": 120000,
+                "isrc": None,
+            }
+        ]
+
+        monkeypatch.setattr(main, "get_apple_client", lambda: apple)
+
+        pending_payloads: list[list[dict[str, Any]]] = []
+
+        def _record_pending(db, spotify_id, title, artist, isrc, candidates, target_service="tidal"):
+            _ = (db, spotify_id, title, artist, isrc, target_service)
+            pending_payloads.append(list(candidates))
+
+        monkeypatch.setattr(main, "add_pending_track_resolution", _record_pending)
+
+        job_id = "job-apple-likes-3"
+        _reset_job(job_id)
+
+        _run_likes_job(job_id)
+
+        status = _job_status(job_id)
+        assert status["state"] == "done"
+        assert status["pending_count"] == 1
+        assert pending_payloads
+        assert pending_payloads[0]
+        assert pending_payloads[0][0]["id"] == "am-candidate-1"
+        assert float(pending_payloads[0][0].get("score", 0)) > 0
 
 
 def _run_playlists_job(job_id: str) -> None:

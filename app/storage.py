@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import (
@@ -30,9 +30,11 @@ class Base(DeclarativeBase):
 class Token(Base):
     __tablename__ = "tokens"
     service: Mapped[str] = mapped_column(String(20), primary_key=True)  # 'spotify' | 'tidal' | 'apple'
-    # For 'apple': data JSON contains {"developer_token": "...", "user_token": "...", ...}
+    # For 'apple': data JSON contains {"developer_token": "...", "music_user_token": "...", ...}
     data: Mapped[str] = mapped_column(Text, nullable=False)  # JSON blob
-    updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=lambda: datetime.now(UTC), onupdate=lambda: datetime.now(UTC)
+    )
 
 
 class ArtistMap(Base):
@@ -61,7 +63,7 @@ class PendingResolution(Base):
     spotify_name: Mapped[str] = mapped_column(String(255), nullable=False)
     target_service: Mapped[str] = mapped_column(String(20), nullable=False, default="tidal")  # 'tidal' | 'apple'
     candidates_json: Mapped[str] = mapped_column(Text, nullable=False)  # JSON list of {id,name,score}
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
 
 class RunLog(Base):
@@ -69,7 +71,7 @@ class RunLog(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     phase: Mapped[str] = mapped_column(String(64), nullable=False)
     message: Mapped[str] = mapped_column(Text, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
 
 # --- Tracks ---
@@ -113,7 +115,7 @@ class PendingTrackResolution(Base):
     candidates_json: Mapped[str] = mapped_column(
         Text, nullable=False
     )  # JSON list of {id,title,artist,isrc,duration,score}
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
 
 # --- Sync Events (audit/backup) ---
@@ -132,7 +134,7 @@ class ArtistSyncEvent(Base):
     target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     target_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source: Mapped[str] = mapped_column(String(16), nullable=False)  # 'auto' | 'manual'
-    synced_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    synced_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
 
 class TrackSyncEvent(Base):
@@ -152,7 +154,7 @@ class TrackSyncEvent(Base):
     target_artist: Mapped[str | None] = mapped_column(String(512), nullable=True)
     isrc: Mapped[str | None] = mapped_column(String(32), nullable=True)
     source: Mapped[str] = mapped_column(String(16), nullable=False)  # 'auto' | 'manual'
-    synced_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    synced_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
 
 # --- Playlists ---
@@ -194,7 +196,7 @@ class PlaylistTrack(Base):
     target_artist: Mapped[str | None] = mapped_column(String(512), nullable=True)
     isrc: Mapped[str | None] = mapped_column(String(32), nullable=True)
     spotify_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)  # seconds
-    last_synced_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    last_synced_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
 
 def init_db() -> None:
@@ -377,7 +379,7 @@ def save_token(db: OrmSession, service: str, data: dict[str, Any]) -> None:
     existing = db.get(Token, service)
     if existing:
         existing.data = payload
-        existing.updated_at = datetime.utcnow()
+        existing.updated_at = datetime.now(UTC)
     else:
         db.add(Token(service=service, data=payload))
     db.commit()
@@ -425,7 +427,7 @@ def upsert_artist_map(
     m.target_name = tidal_name if target_service == "tidal" else m.target_name
     m.confidence = confidence
     m.resolved = resolved
-    m.last_synced_at = datetime.utcnow() if (tidal_id or m.target_id) else None
+    m.last_synced_at = datetime.now(UTC) if (tidal_id or m.target_id) else None
     db.commit()
 
 
@@ -495,21 +497,29 @@ def delete_pending(db: OrmSession, pending_id: int) -> None:
     db.commit()
 
 
-def delete_pending_by_spotify_id(db: OrmSession, spotify_id: str) -> None:
-    """Delete any pending resolution rows for the given Spotify artist id."""
-    db.query(PendingResolution).filter(PendingResolution.spotify_id == spotify_id).delete()
+def delete_pending_by_spotify_id(db: OrmSession, spotify_id: str, target_service: str | None = None) -> None:
+    """Delete pending artist resolution rows for a Spotify artist id.
+
+    When target_service is provided, deletion is scoped to that service only.
+    """
+    q = db.query(PendingResolution).filter(PendingResolution.spotify_id == spotify_id)
+    if target_service:
+        q = q.filter(PendingResolution.target_service == target_service)
+    q.delete()
     db.commit()
 
 
-def cleanup_pending_for_resolved(db: OrmSession) -> int:
+def cleanup_pending_for_resolved(db: OrmSession, target_service: str | None = None) -> int:
     """Remove pending rows whose artists are already resolved in ArtistMap.
 
     Returns the number of rows deleted (best-effort estimate).
     """
     subq = db.query(ArtistMap.spotify_id).filter(ArtistMap.resolved)
-    deleted = (
-        db.query(PendingResolution).filter(PendingResolution.spotify_id.in_(subq)).delete(synchronize_session=False)
-    )
+    q = db.query(PendingResolution).filter(PendingResolution.spotify_id.in_(subq))
+    if target_service:
+        subq = subq.filter(ArtistMap.target_service == target_service)
+        q = q.filter(PendingResolution.target_service == target_service)
+    deleted = q.delete(synchronize_session=False)
     db.commit()
     return int(deleted or 0)
 
@@ -566,7 +576,7 @@ def upsert_track_map(
     m.spotify_duration = spotify_duration
     m.confidence = confidence
     m.resolved = resolved
-    m.last_synced_at = datetime.utcnow() if (tidal_id or m.target_id) else None
+    m.last_synced_at = datetime.now(UTC) if (tidal_id or m.target_id) else None
     db.commit()
 
 
@@ -619,18 +629,21 @@ def delete_pending_track(db: OrmSession, pending_id: int) -> None:
     db.commit()
 
 
-def delete_pending_track_by_spotify_id(db: OrmSession, spotify_id: str) -> None:
-    db.query(PendingTrackResolution).filter(PendingTrackResolution.spotify_id == spotify_id).delete()
+def delete_pending_track_by_spotify_id(db: OrmSession, spotify_id: str, target_service: str | None = None) -> None:
+    q = db.query(PendingTrackResolution).filter(PendingTrackResolution.spotify_id == spotify_id)
+    if target_service:
+        q = q.filter(PendingTrackResolution.target_service == target_service)
+    q.delete()
     db.commit()
 
 
-def cleanup_pending_tracks_for_resolved(db: OrmSession) -> int:
+def cleanup_pending_tracks_for_resolved(db: OrmSession, target_service: str | None = None) -> int:
     subq = db.query(TrackMap.spotify_id).filter(TrackMap.resolved)
-    deleted = (
-        db.query(PendingTrackResolution)
-        .filter(PendingTrackResolution.spotify_id.in_(subq))
-        .delete(synchronize_session=False)
-    )
+    q = db.query(PendingTrackResolution).filter(PendingTrackResolution.spotify_id.in_(subq))
+    if target_service:
+        subq = subq.filter(TrackMap.target_service == target_service)
+        q = q.filter(PendingTrackResolution.target_service == target_service)
+    deleted = q.delete(synchronize_session=False)
     db.commit()
     return int(deleted or 0)
 
@@ -722,7 +735,7 @@ def upsert_playlist_map(
         # For non-TIDAL services (Apple), use target_* params
         m.target_id = target_id
         m.target_name = target_name
-    m.last_synced_at = datetime.utcnow() if (m.tidal_id or m.target_id) else None
+    m.last_synced_at = datetime.now(UTC) if (m.tidal_id or m.target_id) else None
     db.commit()
 
 
@@ -765,7 +778,7 @@ def replace_playlist_tracks(
             PlaylistTrack.target_service == target_service,
         )
     )
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     for e in entries:
         dur_raw = e.get("spotify_duration")
         sd: int | None = int(dur_raw) if dur_raw is not None else None
@@ -795,6 +808,7 @@ def list_playlist_tracks(
     db: OrmSession,
     playlist_spotify_id: str,
     *,
+    target_service: str = "tidal",
     search: str | None = None,
     sort: str = "position",
     order: str = "asc",
@@ -803,7 +817,10 @@ def list_playlist_tracks(
 ) -> tuple[list[dict[str, Any]], int]:
     from sqlalchemy import func, or_
 
-    q = db.query(PlaylistTrack).filter(PlaylistTrack.playlist_spotify_id == playlist_spotify_id)
+    q = db.query(PlaylistTrack).filter(
+        PlaylistTrack.playlist_spotify_id == playlist_spotify_id,
+        PlaylistTrack.target_service == target_service,
+    )
     if search:
         s = f"%{search.lower()}%"
         q = q.filter(
@@ -865,14 +882,17 @@ def list_playlist_tracks(
     return out, total
 
 
-def get_playlist_stats(db: OrmSession, playlist_spotify_id: str) -> dict[str, Any]:
+def get_playlist_stats(db: OrmSession, playlist_spotify_id: str, *, target_service: str = "tidal") -> dict[str, Any]:
     """Return aggregate stats for a playlist: track count and total duration (seconds)."""
     from sqlalchemy import func
 
     q = db.query(
         func.count(PlaylistTrack.id),
         func.coalesce(func.sum(PlaylistTrack.spotify_duration), 0),
-    ).filter(PlaylistTrack.playlist_spotify_id == playlist_spotify_id)
+    ).filter(
+        PlaylistTrack.playlist_spotify_id == playlist_spotify_id,
+        PlaylistTrack.target_service == target_service,
+    )
     count_val, total_dur = q.one()
     return {"count": int(count_val or 0), "total_seconds": int(total_dur or 0)}
 

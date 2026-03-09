@@ -218,7 +218,7 @@ If you need a deep dive into playlist specifics, see [docs/PLAYLISTS.md](docs/PL
 **Common Causes:**
 1. **Missing or Expired Music User Token** - Manual resolution requires a valid Apple Music "Music User Token" to be present in the database.
    - **Fix:** Ensure the user has connected Apple Music via the UI (`/apple/connect`).
-   - **Check:** Query the `tokens` table for service='apple' and verify `user_token` is present and not expired.
+  - **Check:** Query the `tokens` table for service='apple' and verify `music_user_token` is present and not expired.
    - **Note:** The token is obtained via MusicKit JS browser popup and has a limited lifetime.
 
 2. **Storefront Mismatch** - Apple Music matching is storefront/region-aware.

@@ -135,11 +135,13 @@ Then open:
 - “Sync Playlists” creates/updates your user-owned Spotify playlists on TIDAL
   and records the ordered track list locally.
 - Apple Music sync:
-  - "Sync Playlists to Apple Music" creates/updates your Spotify playlists on
-    Apple Music with ISRC-first matching.
-  - "Sync Liked Tracks to Apple Music" adds your Spotify liked tracks to your
-    Apple Music library.
-  - "Create/Update Followed Artists Playlist" creates a fallback playlist on Apple Music containing your followed artists' tracks (since Apple Music does not support artist following via API).
+  - "Sync Playlists (Spotify → Apple Music)" creates/updates your Spotify
+    playlists on Apple Music with ISRC-first matching.
+  - "Sync Liked Tracks (Spotify → Apple Music Library)" adds your Spotify
+    liked tracks to your Apple Music library.
+  - "Create/Update Followed Artists Playlist (Spotify → Apple Music)" creates
+    a fallback playlist on Apple Music containing your followed artists' tracks
+    (since Apple Music does not support artist following via API).
 
 ### Review & browse
 
@@ -161,7 +163,9 @@ Then open:
 
 We use the `tidalapi` device login flow. When you press “Connect TIDAL,” the
 UI shows a link/code to authorize. After completing it, refresh the app; your
-session is cached for reuse.## Notes on Apple Music setup
+session is cached for reuse.
+
+## Notes on Apple Music setup
 
 Apple Music integration requires an Apple Developer account with a MusicKit
 identifier and private key:
@@ -232,7 +236,8 @@ Capabilities differ by target service due to API surface area and reliability.
     limits around ~10k per category may apply.
 
 - Apple Music (current target)
-  - Implemented: playlists (create/update), liked tracks (add to library), and a fallback playlist for followed artists.
+  - Implemented: playlists (create/update), liked tracks (add to library), and
+    a fallback playlist for followed artists.
     Uses JWT authentication (ES256) with MusicKit Developer Token + Music User
     Token (via MusicKit JS).
   - Matching: ISRC-first, then fuzzy title/artist/duration scoring.
@@ -261,7 +266,8 @@ will roll out gradually.
 ## Troubleshooting
 
 - “Connect TIDAL” shows pending forever: open the provided link, approve, then
-  click “Check Status” or refresh.- "Connect Apple Music" fails or shows errors:
+  click “Check Status” or refresh.
+- "Connect Apple Music" fails or shows errors:
   - Verify `APPLE_MUSIC_TEAM_ID`, `APPLE_MUSIC_KEY_ID`, and
     `APPLE_MUSIC_PRIVATE_KEY_PATH` are set correctly in `.env`.
   - Ensure the `.p8` private key file exists at the specified path.
@@ -270,7 +276,8 @@ will roll out gradually.
   - Ensure you have an active Apple Music subscription (required for API access).
   - Check browser console for MusicKit JS errors (popup blocker, CORS issues).
 - Apple Music sync shows "track not found": storefront/region availability
-  varies; some tracks may not be available in your Apple Music region.- Spotify auth errors: ensure Redirect URI matches exactly.
+  varies; some tracks may not be available in your Apple Music region.
+- Spotify auth errors: ensure Redirect URI matches exactly.
 - Missing rapidfuzz: `pip install -r requirements.txt` (it’s included).
 - Unicode/diacritics oddities in matches: normalization strips accents and
   punctuation; use manual resolve when in doubt.

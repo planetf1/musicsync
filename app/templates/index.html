@@ -5,131 +5,151 @@
   <ul>
     <li>
       Spotify:
-      <strong class="{{ 'status-connected' if spotify_ok else 'status-disconnected' }}">{{ 'Connected' if spotify_ok else 'Not Connected' }}</strong>
+      <strong class="{{ 'status-connected' if spotify_ok else 'status-disconnected' }}">{{ 'Connected' if spotify_ok
+        else 'Not Connected' }}</strong>
       {% if not spotify_ok %}
-        <a class="btn" href="/auth/spotify/login">Connect Spotify</a>
+      <a class="btn" href="/auth/spotify/login">Connect Spotify</a>
       {% endif %}
     </li>
     {% if tidal_enabled %}
     <li>
       TIDAL:
-      <strong class="{{ 'status-connected' if tidal_ok else 'status-disconnected' }}">{{ 'Connected' if tidal_ok else 'Not Connected' }}</strong>
+      <strong class="{{ 'status-connected' if tidal_ok else 'status-disconnected' }}">{{ 'Connected' if tidal_ok else
+        'Not Connected' }}</strong>
       {% if not tidal_ok %}
-        <button class="btn" onclick="startTidal()">Connect TIDAL</button>
-        <button class="btn" onclick="checkTidal()">Check Status</button>
-        <div id="tidal-link" style="margin-top:8px"></div>
-        <script>
-          let pollTimer;
-          function startPolling() {
+      <button class="btn" onclick="startTidal()">Connect TIDAL</button>
+      <button class="btn" onclick="checkTidal()">Check Status</button>
+      <div id="tidal-link" style="margin-top:8px"></div>
+      <script>
+        let pollTimer;
+        function startPolling() {
+          if (pollTimer) clearInterval(pollTimer);
+          pollTimer = setInterval(checkTidal, 4000);
+        }
+        function ensureAbsolute(u) {
+          if (!u) return null;
+          return (/^https?:\/\//i.test(u)) ? u : ('https://' + u.replace(/^\/+/, ''));
+        }
+        function buildTidalLink(data) {
+          const complete = data.verification_uri_complete;
+          const base = data.verification_uri;
+          const code = data.user_code;
+          if (complete) return ensureAbsolute(complete);
+          if (base && code) return ensureAbsolute((base || '').replace(/\/+$/, '') + '/' + code);
+          if (base) return ensureAbsolute(base);
+          return 'https://link.tidal.com/';
+        }
+        async function startTidal() {
+          const resp = await fetch('/auth/tidal/start');
+          const data = await resp.json();
+          const div = document.getElementById('tidal-link');
+          const link = buildTidalLink(data);
+          const code = data.user_code ? `<div style="margin-top:6px">Code: <strong>${data.user_code}</strong></div>` : '';
+          const expires = data.expires_in ? `<div>Expires in ~${Math.floor(data.expires_in)} seconds</div>` : '';
+          div.innerHTML = `Visit <a href="${link}" target="_blank">${link}</a> to link your account.${code}${expires}`;
+          startPolling();
+        }
+        async function checkTidal() {
+          const resp = await fetch('/auth/tidal/status');
+          const data = await resp.json();
+          const div = document.getElementById('tidal-link');
+          if (data.logged_in) {
             if (pollTimer) clearInterval(pollTimer);
-            pollTimer = setInterval(checkTidal, 4000);
+            div.innerHTML = '<span class="status-connected">TIDAL connected. Refreshing…</span>';
+            window.location.reload();
+            return;
           }
-          function ensureAbsolute(u){
-            if(!u) return null;
-            return (/^https?:\/\//i.test(u)) ? u : ('https://' + u.replace(/^\/+/, ''));
+          if (data.error) {
+            div.innerHTML = `<span class="status-disconnected">${data.error}</span>`;
+          } else if (data.pending) {
+            div.innerHTML = 'Waiting for TIDAL confirmation…';
           }
-          function buildTidalLink(data){
-            const complete = data.verification_uri_complete;
-            const base = data.verification_uri;
-            const code = data.user_code;
-            if (complete) return ensureAbsolute(complete);
-            if (base && code) return ensureAbsolute((base || '').replace(/\/+$/, '') + '/' + code);
-            if (base) return ensureAbsolute(base);
-            return 'https://link.tidal.com/';
-          }
-          async function startTidal() {
-            const resp = await fetch('/auth/tidal/start');
-            const data = await resp.json();
-            const div = document.getElementById('tidal-link');
-            const link = buildTidalLink(data);
-            const code = data.user_code ? `<div style="margin-top:6px">Code: <strong>${data.user_code}</strong></div>` : '';
-            const expires = data.expires_in ? `<div>Expires in ~${Math.floor(data.expires_in)} seconds</div>` : '';
-            div.innerHTML = `Visit <a href="${link}" target="_blank">${link}</a> to link your account.${code}${expires}`;
-            startPolling();
-          }
-          async function checkTidal() {
-            const resp = await fetch('/auth/tidal/status');
-            const data = await resp.json();
-            const div = document.getElementById('tidal-link');
-            if (data.logged_in) {
-              if (pollTimer) clearInterval(pollTimer);
-              div.innerHTML = '<span class="status-connected">TIDAL connected. Refreshing…</span>';
-              window.location.reload();
-              return;
-            }
-            if (data.error) {
-              div.innerHTML = `<span class="status-disconnected">${data.error}</span>`;
-            } else if (data.pending) {
-              div.innerHTML = 'Waiting for TIDAL confirmation…';
-            }
-          }
-        </script>
+        }
+      </script>
       {% endif %}
     </li>
     {% endif %}
     {% if apple_enabled %}
     <li>
       Apple Music:
-      <strong class="{{ 'status-connected' if apple_ok else 'status-disconnected' }}">{{ 'Connected' if apple_ok else 'Not Connected' }}</strong>
+      <strong class="{{ 'status-connected' if apple_ok else 'status-disconnected' }}">{{ 'Connected' if apple_ok else
+        'Not Connected' }}</strong>
       {% if not apple_ok %}
-        <a class="btn" href="/auth/apple/connect">Connect Apple Music</a>
+      <a class="btn" href="/auth/apple/connect">Connect Apple Music</a>
       {% endif %}
     </li>
     {% endif %}
   </ul>
   <div class="actions">
     {% if tidal_enabled %}
-    <button id="btn-sync-artists" class="btn" onclick="startArtistSync()" {% if not (spotify_ok and tidal_ok) %}disabled{% endif %}>Sync Followed Artists</button>
-    <div id="artist-sync-progress" style="margin-top:8px"></div>
+    <button id="btn-sync-artists" class="btn" onclick="startArtistSync()" {% if not (spotify_ok and tidal_ok)
+      %}disabled{% endif %}>Sync Followed Artists</button>
+    <div id="artist-sync-progress" style="margin-top:12px; font-weight: 500;"></div>
+    <div id="artist-sync-bar" class="progress-bar" style="display:none;">
+      <div class="progress-fill" style="width: 0%;"></div>
+    </div>
     <script>
       let artistSyncTimer;
-      async function startArtistSync(){
+      async function startArtistSync() {
         const btn = document.getElementById('btn-sync-artists');
         const div = document.getElementById('artist-sync-progress');
+        const bar = document.getElementById('artist-sync-bar');
         btn.disabled = true;
         div.textContent = 'Starting sync…';
-        try{
+        bar.style.display = 'block';
+        bar.querySelector('.progress-fill').style.width = '0%';
+        try {
           const debugLimit = document.getElementById('chk-limit-25')?.checked ? 25 : 0;
           const url = debugLimit ? ('/sync/artists/start?limit=' + debugLimit) : '/sync/artists/start';
-          const resp = await fetch(url, {method:'POST'});
-          if(!resp.ok){
+          const resp = await fetch(url, { method: 'POST' });
+          if (!resp.ok) {
             div.textContent = 'Failed to start sync.';
             btn.disabled = false;
+            bar.style.display = 'none';
             return;
           }
           const data = await resp.json();
           pollArtistSync(data.job_id);
-        }catch(e){
+        } catch (e) {
           div.textContent = 'Error starting sync: ' + e;
           btn.disabled = false;
+          bar.style.display = 'none';
         }
       }
-      async function pollArtistSync(jobId){
-        if(artistSyncTimer) clearInterval(artistSyncTimer);
+      async function pollArtistSync(jobId) {
+        if (artistSyncTimer) clearInterval(artistSyncTimer);
         const div = document.getElementById('artist-sync-progress');
+        const bar = document.getElementById('artist-sync-bar');
+        const fill = bar.querySelector('.progress-fill');
         const render = async () => {
-          try{
-            const r = await fetch('/sync/artists/status?job_id='+encodeURIComponent(jobId));
-            if(!r.ok){ div.textContent = 'Sync status unavailable'; return; }
+          try {
+            const r = await fetch('/sync/artists/status?job_id=' + encodeURIComponent(jobId));
+            if (!r.ok) { div.textContent = 'Sync status unavailable'; return; }
             const s = await r.json();
-            if(s.state === 'error'){
-              div.innerHTML = `<span class="status-disconnected">Error: ${s.error||'unknown'}</span>`;
+            if (s.state === 'error') {
+              div.innerHTML = `<span class="status-disconnected">Error: ${s.error || 'unknown'}</span>`;
               clearInterval(artistSyncTimer);
               document.getElementById('btn-sync-artists').disabled = false;
+              fill.style.background = '#ef4444';
               return;
             }
             const total = s.total ?? 0;
             const processed = s.processed ?? 0;
             const autoMatched = s.auto_matched ?? 0;
             const pend = s.pending_count ?? 0;
-            if(s.state === 'done'){
-              div.innerHTML = `<span class="status-connected">Done.</span> Artists: ${total}, auto-matched: ${autoMatched}, pending: ${pend}. <a href="/pending">Review pending</a>`;
+
+            const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+            fill.style.width = pct + '%';
+
+            if (s.state === 'done') {
+              div.innerHTML = `<span class="status-connected">Done.</span> Artists: ${total}, auto-matched: ${autoMatched}, pending: ${pend}. <a href="/pending" style="color:var(--primary-light); text-decoration:underline;">Review pending</a>`;
               clearInterval(artistSyncTimer);
               document.getElementById('btn-sync-artists').disabled = false;
+              fill.style.width = '100%';
               return;
             }
             div.textContent = `Syncing… ${processed}/${total} (auto: ${autoMatched}, pending: ${pend})`;
-          }catch(e){
+          } catch (e) {
             div.textContent = 'Error reading status: ' + e;
           }
         };
@@ -167,7 +187,8 @@
         <a class="btn" href="/export/playlists?format=md&download=1">Markdown</a>
       </div>
     </div>
-    <form id="restore-form" method="post" action="/restore/db" enctype="multipart/form-data" style="margin-top:12px; display:flex; gap:8px; align-items:center; flex-wrap: wrap;">
+    <form id="restore-form" method="post" action="/restore/db" enctype="multipart/form-data"
+      style="margin-top:12px; display:flex; gap:8px; align-items:center; flex-wrap: wrap;">
       <label for="restoreFile">Restore database from file:</label>
       <input id="restoreFile" type="file" name="file" accept=".db,.sqlite,application/octet-stream" />
       <button class="btn" type="submit">Upload & Restore</button>
@@ -176,54 +197,70 @@
   <hr />
   {% if tidal_enabled %}
   <div class="actions">
-    <button id="btn-sync-playlists" class="btn" onclick="startPlaylistSync()" {% if not (spotify_ok and tidal_ok) %}disabled{% endif %}>Sync Playlists (Spotify → TIDAL)</button>
+    <button id="btn-sync-playlists" class="btn" onclick="startPlaylistSync()" {% if not (spotify_ok and tidal_ok)
+      %}disabled{% endif %}>Sync Playlists (Spotify → TIDAL)</button>
     <a class="btn secondary" href="/library/playlists" style="margin-left:8px;">View Playlists</a>
-    <div id="playlist-sync-progress" style="margin-top:8px"></div>
+    <div id="playlist-sync-progress" style="margin-top:12px; font-weight: 500;"></div>
+    <div id="playlist-sync-bar" class="progress-bar" style="display:none;">
+      <div class="progress-fill" style="width: 0%;"></div>
+    </div>
     <script>
       let playlistSyncTimer;
-      async function startPlaylistSync(){
+      async function startPlaylistSync() {
         const btn = document.getElementById('btn-sync-playlists');
         const div = document.getElementById('playlist-sync-progress');
+        const bar = document.getElementById('playlist-sync-bar');
         btn.disabled = true;
         div.textContent = 'Starting playlist sync…';
-        try{
+        bar.style.display = 'block';
+        bar.querySelector('.progress-fill').style.width = '0%';
+        try {
           const debugLimit = document.getElementById('chk-limit-playlists-25')?.checked ? 25 : 0;
           const url = debugLimit ? ('/sync/playlists/start?limit=' + debugLimit) : '/sync/playlists/start';
-          const resp = await fetch(url, {method:'POST'});
-          if(!resp.ok){ div.textContent = 'Failed to start playlist sync.'; btn.disabled = false; return; }
+          const resp = await fetch(url, { method: 'POST' });
+          if (!resp.ok) { div.textContent = 'Failed to start playlist sync.'; btn.disabled = false; bar.style.display = 'none'; return; }
           const data = await resp.json();
           pollPlaylistSync(data.job_id);
-        }catch(e){
+        } catch (e) {
           div.textContent = 'Error starting playlist sync: ' + e;
           btn.disabled = false;
+          bar.style.display = 'none';
         }
       }
-      async function pollPlaylistSync(jobId){
-        if(playlistSyncTimer) clearInterval(playlistSyncTimer);
+      async function pollPlaylistSync(jobId) {
+        if (playlistSyncTimer) clearInterval(playlistSyncTimer);
         const div = document.getElementById('playlist-sync-progress');
+        const bar = document.getElementById('playlist-sync-bar');
+        const fill = bar.querySelector('.progress-fill');
         const render = async () => {
-          try{
-            const r = await fetch('/sync/playlists/status?job_id='+encodeURIComponent(jobId));
-            if(!r.ok){ div.textContent = 'Playlist sync status unavailable'; return; }
+          try {
+            const r = await fetch('/sync/playlists/status?job_id=' + encodeURIComponent(jobId));
+            if (!r.ok) { div.textContent = 'Playlist sync status unavailable'; return; }
             const s = await r.json();
-            if(s.state === 'error'){
-              div.innerHTML = `<span class="status-disconnected">Error: ${s.error||'unknown'}</span>`;
+            if (s.state === 'error') {
+              div.innerHTML = `<span class="status-disconnected">Error: ${s.error || 'unknown'}</span>`;
               clearInterval(playlistSyncTimer);
               document.getElementById('btn-sync-playlists').disabled = false;
+              fill.style.background = '#ef4444';
               return;
             }
             const total = s.total ?? 0;
             const processed = s.processed ?? 0;
             const created = s.created ?? 0;
             const updated = s.updated ?? 0;
-            if(s.state === 'done'){
+
+            const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+            fill.style.width = pct + '%';
+
+            if (s.state === 'done') {
               div.innerHTML = `<span class="status-connected">Done.</span> Playlists: ${total}, created: ${created}, updated: ${updated}.`;
               clearInterval(playlistSyncTimer);
               document.getElementById('btn-sync-playlists').disabled = false;
+              fill.style.width = '100%';
               return;
             }
             div.textContent = `Syncing playlists… ${processed}/${total} (created: ${created}, touched: ${updated})`;
-          }catch(e){
+          } catch (e) {
             div.textContent = 'Error reading status: ' + e;
           }
         };
@@ -239,53 +276,69 @@
   <hr />
   {% if tidal_enabled %}
   <div class="actions">
-    <button id="btn-sync-tracks" class="btn" onclick="startTrackSync()" {% if not (spotify_ok and tidal_ok) %}disabled{% endif %}>Sync Liked Tracks (Spotify → TIDAL)</button>
-    <div id="track-sync-progress" style="margin-top:8px"></div>
+    <button id="btn-sync-tracks" class="btn" onclick="startTrackSync()" {% if not (spotify_ok and tidal_ok) %}disabled{%
+      endif %}>Sync Liked Tracks (Spotify → TIDAL)</button>
+    <div id="track-sync-progress" style="margin-top:12px; font-weight: 500;"></div>
+    <div id="track-sync-bar" class="progress-bar" style="display:none;">
+      <div class="progress-fill" style="width: 0%;"></div>
+    </div>
     <script>
       let trackSyncTimer;
-      async function startTrackSync(){
+      async function startTrackSync() {
         const btn = document.getElementById('btn-sync-tracks');
         const div = document.getElementById('track-sync-progress');
+        const bar = document.getElementById('track-sync-bar');
         btn.disabled = true;
         div.textContent = 'Starting track sync…';
-        try{
+        bar.style.display = 'block';
+        bar.querySelector('.progress-fill').style.width = '0%';
+        try {
           const debugLimit = document.getElementById('chk-limit-tracks-25')?.checked ? 25 : 0;
           const url = debugLimit ? ('/sync/tracks/start?limit=' + debugLimit) : '/sync/tracks/start';
-          const resp = await fetch(url, {method:'POST'});
-          if(!resp.ok){ div.textContent = 'Failed to start track sync.'; btn.disabled = false; return; }
+          const resp = await fetch(url, { method: 'POST' });
+          if (!resp.ok) { div.textContent = 'Failed to start track sync.'; btn.disabled = false; bar.style.display = 'none'; return; }
           const data = await resp.json();
           pollTrackSync(data.job_id);
-        }catch(e){
+        } catch (e) {
           div.textContent = 'Error starting track sync: ' + e;
           btn.disabled = false;
+          bar.style.display = 'none';
         }
       }
-      async function pollTrackSync(jobId){
-        if(trackSyncTimer) clearInterval(trackSyncTimer);
+      async function pollTrackSync(jobId) {
+        if (trackSyncTimer) clearInterval(trackSyncTimer);
         const div = document.getElementById('track-sync-progress');
+        const bar = document.getElementById('track-sync-bar');
+        const fill = bar.querySelector('.progress-fill');
         const render = async () => {
-          try{
-            const r = await fetch('/sync/tracks/status?job_id='+encodeURIComponent(jobId));
-            if(!r.ok){ div.textContent = 'Track sync status unavailable'; return; }
+          try {
+            const r = await fetch('/sync/tracks/status?job_id=' + encodeURIComponent(jobId));
+            if (!r.ok) { div.textContent = 'Track sync status unavailable'; return; }
             const s = await r.json();
-            if(s.state === 'error'){
-              div.innerHTML = `<span class="status-disconnected">Error: ${s.error||'unknown'}</span>`;
+            if (s.state === 'error') {
+              div.innerHTML = `<span class="status-disconnected">Error: ${s.error || 'unknown'}</span>`;
               clearInterval(trackSyncTimer);
               document.getElementById('btn-sync-tracks').disabled = false;
+              fill.style.background = '#ef4444';
               return;
             }
             const total = s.total ?? 0;
             const processed = s.processed ?? 0;
             const autoMatched = s.auto_matched ?? 0;
             const pend = s.pending_count ?? 0;
-            if(s.state === 'done'){
-              div.innerHTML = `<span class="status-connected">Done.</span> Tracks: ${total}, auto-matched: ${autoMatched}, pending: ${pend}. <a href="/pending-tracks">Review pending tracks</a>`;
+
+            const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+            fill.style.width = pct + '%';
+
+            if (s.state === 'done') {
+              div.innerHTML = `<span class="status-connected">Done.</span> Tracks: ${total}, auto-matched: ${autoMatched}, pending: ${pend}. <a href="/pending-tracks" style="color:var(--primary-light); text-decoration:underline;">Review pending tracks</a>`;
               clearInterval(trackSyncTimer);
               document.getElementById('btn-sync-tracks').disabled = false;
+              fill.style.width = '100%';
               return;
             }
             div.textContent = `Syncing tracks… ${processed}/${total} (auto: ${autoMatched}, pending: ${pend})`;
-          }catch(e){
+          } catch (e) {
             div.textContent = 'Error reading status: ' + e;
           }
         };
@@ -301,16 +354,24 @@
   <hr />
   {% if apple_enabled %}
   <div class="actions">
-    <button id="btn-sync-apple-followed-artists" class="btn" onclick="startAppleFollowedArtistsFallbackSync()" {% if not (spotify_ok and apple_ok) %}disabled{% endif %}>Create/Update Followed Artists Playlist (Spotify → Apple Music)</button>
-    <div id="apple-followed-artists-sync-progress" style="margin-top:8px"></div>
+    <button id="btn-sync-apple-followed-artists" class="btn" onclick="startAppleFollowedArtistsFallbackSync()" {% if not
+      (spotify_ok and apple_ok) %}disabled{% endif %}>Create/Update Followed Artists Playlist (Spotify → Apple
+      Music)</button>
+    <div id="apple-followed-artists-sync-progress" style="margin-top:12px; font-weight: 500;"></div>
+    <div id="apple-followed-artists-sync-bar" class="progress-bar" style="display:none;">
+      <div class="progress-fill" style="width: 0%;"></div>
+    </div>
     <script>
       let appleFollowedArtistsSyncTimer;
-      async function startAppleFollowedArtistsFallbackSync(){
+      async function startAppleFollowedArtistsFallbackSync() {
         const btn = document.getElementById('btn-sync-apple-followed-artists');
         const div = document.getElementById('apple-followed-artists-sync-progress');
+        const bar = document.getElementById('apple-followed-artists-sync-bar');
         btn.disabled = true;
         div.textContent = 'Starting Apple Music followed-artists fallback sync…';
-        try{
+        bar.style.display = 'block';
+        bar.querySelector('.progress-fill').style.width = '0%';
+        try {
           const debugLimit = document.getElementById('chk-limit-apple-followed-artists-25')?.checked ? 25 : 0;
           const rebuild = document.getElementById('chk-rebuild-apple-followed-artists')?.checked;
           let url = '/sync/apple/followed-artists-playlist/start';
@@ -318,27 +379,31 @@
           if (debugLimit) params.append('limit', debugLimit);
           if (rebuild) params.append('rebuild', 'true');
           if (params.toString()) url += '?' + params.toString();
-          const resp = await fetch(url, {method:'POST'});
-          if(!resp.ok){ div.textContent = 'Failed to start Apple Music followed-artists fallback sync.'; btn.disabled = false; return; }
+          const resp = await fetch(url, { method: 'POST' });
+          if (!resp.ok) { div.textContent = 'Failed to start Apple Music followed-artists fallback sync.'; btn.disabled = false; bar.style.display = 'none'; return; }
           const data = await resp.json();
           pollAppleFollowedArtistsFallbackSync(data.job_id);
-        }catch(e){
+        } catch (e) {
           div.textContent = 'Error starting Apple Music followed-artists fallback sync: ' + e;
           btn.disabled = false;
+          bar.style.display = 'none';
         }
       }
-      async function pollAppleFollowedArtistsFallbackSync(jobId){
-        if(appleFollowedArtistsSyncTimer) clearInterval(appleFollowedArtistsSyncTimer);
+      async function pollAppleFollowedArtistsFallbackSync(jobId) {
+        if (appleFollowedArtistsSyncTimer) clearInterval(appleFollowedArtistsSyncTimer);
         const div = document.getElementById('apple-followed-artists-sync-progress');
+        const bar = document.getElementById('apple-followed-artists-sync-bar');
+        const fill = bar.querySelector('.progress-fill');
         const render = async () => {
-          try{
-            const r = await fetch('/sync/apple/followed-artists-playlist/status?job_id='+encodeURIComponent(jobId));
-            if(!r.ok){ div.textContent = 'Apple Music followed-artists fallback sync status unavailable'; return; }
+          try {
+            const r = await fetch('/sync/apple/followed-artists-playlist/status?job_id=' + encodeURIComponent(jobId));
+            if (!r.ok) { div.textContent = 'Apple Music followed-artists fallback sync status unavailable'; return; }
             const s = await r.json();
-            if(s.state === 'error'){
-              div.innerHTML = `<span class="status-disconnected">Error: ${s.error||'unknown'}</span>`;
+            if (s.state === 'error') {
+              div.innerHTML = `<span class="status-disconnected">Error: ${s.error || 'unknown'}</span>`;
               clearInterval(appleFollowedArtistsSyncTimer);
               document.getElementById('btn-sync-apple-followed-artists').disabled = false;
+              fill.style.background = '#ef4444';
               return;
             }
             const total = s.total ?? 0;
@@ -349,7 +414,11 @@
             const playlistName = s.playlist_name || 'Followed Artists from Spotify';
             const rebuild = s.rebuild ?? false;
             const tracksRemoved = s.tracks_removed ?? 0;
-            if(s.state === 'done'){
+
+            const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+            fill.style.width = pct + '%';
+
+            if (s.state === 'done') {
               let msg = `<span class="status-connected">Done.</span> Artists: ${total}, mapped: ${mapped}, unavailable: ${unavailable}`;
               if (rebuild && tracksRemoved > 0) {
                 msg += `, tracks removed: ${tracksRemoved}`;
@@ -358,10 +427,11 @@
               div.innerHTML = msg;
               clearInterval(appleFollowedArtistsSyncTimer);
               document.getElementById('btn-sync-apple-followed-artists').disabled = false;
+              fill.style.width = '100%';
               return;
             }
             div.textContent = `Syncing Apple followed-artists fallback… ${processed}/${total} (mapped: ${mapped}, unavailable: ${unavailable})`;
-          }catch(e){
+          } catch (e) {
             div.textContent = 'Error reading status: ' + e;
           }
         };
@@ -374,60 +444,77 @@
     <label><input type="checkbox" id="chk-limit-apple-followed-artists-25" /> Debug: limit to first 25 artists</label>
   </div>
   <div style="margin-top:6px">
-    <label><input type="checkbox" id="chk-rebuild-apple-followed-artists" /> Rebuild mode: clear existing tracks before repopulating</label>
+    <label><input type="checkbox" id="chk-rebuild-apple-followed-artists" /> Rebuild mode: clear existing tracks before
+      repopulating</label>
   </div>
   {% endif %}
   <hr />
   {% if apple_enabled %}
   <div class="actions">
-    <button id="btn-sync-apple-playlists" class="btn" onclick="startApplePlaylistSync()" {% if not (spotify_ok and apple_ok) %}disabled{% endif %}>Sync Playlists (Spotify → Apple Music)</button>
+    <button id="btn-sync-apple-playlists" class="btn" onclick="startApplePlaylistSync()" {% if not (spotify_ok and
+      apple_ok) %}disabled{% endif %}>Sync Playlists (Spotify → Apple Music)</button>
     <a class="btn secondary" href="/library/playlists" style="margin-left:8px;">View Playlists</a>
-    <div id="apple-playlist-sync-progress" style="margin-top:8px"></div>
+    <div id="apple-playlist-sync-progress" style="margin-top:12px; font-weight: 500;"></div>
+    <div id="apple-playlist-sync-bar" class="progress-bar" style="display:none;">
+      <div class="progress-fill" style="width: 0%;"></div>
+    </div>
     <script>
       let applePlaylistSyncTimer;
-      async function startApplePlaylistSync(){
+      async function startApplePlaylistSync() {
         const btn = document.getElementById('btn-sync-apple-playlists');
         const div = document.getElementById('apple-playlist-sync-progress');
+        const bar = document.getElementById('apple-playlist-sync-bar');
         btn.disabled = true;
         div.textContent = 'Starting Apple Music playlist sync…';
-        try{
+        bar.style.display = 'block';
+        bar.querySelector('.progress-fill').style.width = '0%';
+        try {
           const debugLimit = document.getElementById('chk-limit-apple-playlists-25')?.checked ? 25 : 0;
           const url = debugLimit ? ('/sync/apple/playlists/start?limit=' + debugLimit) : '/sync/apple/playlists/start';
-          const resp = await fetch(url, {method:'POST'});
-          if(!resp.ok){ div.textContent = 'Failed to start Apple Music playlist sync.'; btn.disabled = false; return; }
+          const resp = await fetch(url, { method: 'POST' });
+          if (!resp.ok) { div.textContent = 'Failed to start Apple Music playlist sync.'; btn.disabled = false; bar.style.display = 'none'; return; }
           const data = await resp.json();
           pollApplePlaylistSync(data.job_id);
-        }catch(e){
+        } catch (e) {
           div.textContent = 'Error starting Apple Music playlist sync: ' + e;
           btn.disabled = false;
+          bar.style.display = 'none';
         }
       }
-      async function pollApplePlaylistSync(jobId){
-        if(applePlaylistSyncTimer) clearInterval(applePlaylistSyncTimer);
+      async function pollApplePlaylistSync(jobId) {
+        if (applePlaylistSyncTimer) clearInterval(applePlaylistSyncTimer);
         const div = document.getElementById('apple-playlist-sync-progress');
+        const bar = document.getElementById('apple-playlist-sync-bar');
+        const fill = bar.querySelector('.progress-fill');
         const render = async () => {
-          try{
-            const r = await fetch('/sync/apple/playlists/status?job_id='+encodeURIComponent(jobId));
-            if(!r.ok){ div.textContent = 'Apple Music playlist sync status unavailable'; return; }
+          try {
+            const r = await fetch('/sync/apple/playlists/status?job_id=' + encodeURIComponent(jobId));
+            if (!r.ok) { div.textContent = 'Apple Music playlist sync status unavailable'; return; }
             const s = await r.json();
-            if(s.state === 'error'){
-              div.innerHTML = `<span class="status-disconnected">Error: ${s.error||'unknown'}</span>`;
+            if (s.state === 'error') {
+              div.innerHTML = `<span class="status-disconnected">Error: ${s.error || 'unknown'}</span>`;
               clearInterval(applePlaylistSyncTimer);
               document.getElementById('btn-sync-apple-playlists').disabled = false;
+              fill.style.background = '#ef4444';
               return;
             }
             const total = s.total ?? 0;
             const processed = s.processed ?? 0;
             const created = s.created ?? 0;
             const updated = s.updated ?? 0;
-            if(s.state === 'done'){
+
+            const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+            fill.style.width = pct + '%';
+
+            if (s.state === 'done') {
               div.innerHTML = `<span class="status-connected">Done.</span> Playlists: ${total}, created: ${created}, updated: ${updated}.`;
               clearInterval(applePlaylistSyncTimer);
               document.getElementById('btn-sync-apple-playlists').disabled = false;
+              fill.style.width = '100%';
               return;
             }
             div.textContent = `Syncing Apple Music playlists… ${processed}/${total} (created: ${created}, touched: ${updated})`;
-          }catch(e){
+          } catch (e) {
             div.textContent = 'Error reading status: ' + e;
           }
         };
@@ -443,53 +530,69 @@
   <hr />
   {% if apple_enabled %}
   <div class="actions">
-    <button id="btn-sync-apple-likes" class="btn" onclick="startAppleLikesSync()" {% if not (spotify_ok and apple_ok) %}disabled{% endif %}>Sync Liked Tracks (Spotify → Apple Music Library)</button>
-    <div id="apple-likes-sync-progress" style="margin-top:8px"></div>
+    <button id="btn-sync-apple-likes" class="btn" onclick="startAppleLikesSync()" {% if not (spotify_ok and apple_ok)
+      %}disabled{% endif %}>Sync Liked Tracks (Spotify → Apple Music Library)</button>
+    <div id="apple-likes-sync-progress" style="margin-top:12px; font-weight: 500;"></div>
+    <div id="apple-likes-sync-bar" class="progress-bar" style="display:none;">
+      <div class="progress-fill" style="width: 0%;"></div>
+    </div>
     <script>
       let appleLikesSyncTimer;
-      async function startAppleLikesSync(){
+      async function startAppleLikesSync() {
         const btn = document.getElementById('btn-sync-apple-likes');
         const div = document.getElementById('apple-likes-sync-progress');
+        const bar = document.getElementById('apple-likes-sync-bar');
         btn.disabled = true;
         div.textContent = 'Starting Apple Music library sync…';
-        try{
+        bar.style.display = 'block';
+        bar.querySelector('.progress-fill').style.width = '0%';
+        try {
           const debugLimit = document.getElementById('chk-limit-apple-likes-25')?.checked ? 25 : 0;
           const url = debugLimit ? ('/sync/apple/likes/start?limit=' + debugLimit) : '/sync/apple/likes/start';
-          const resp = await fetch(url, {method:'POST'});
-          if(!resp.ok){ div.textContent = 'Failed to start Apple Music library sync.'; btn.disabled = false; return; }
+          const resp = await fetch(url, { method: 'POST' });
+          if (!resp.ok) { div.textContent = 'Failed to start Apple Music library sync.'; btn.disabled = false; bar.style.display = 'none'; return; }
           const data = await resp.json();
           pollAppleLikesSync(data.job_id);
-        }catch(e){
+        } catch (e) {
           div.textContent = 'Error starting Apple Music library sync: ' + e;
           btn.disabled = false;
+          bar.style.display = 'none';
         }
       }
-      async function pollAppleLikesSync(jobId){
-        if(appleLikesSyncTimer) clearInterval(appleLikesSyncTimer);
+      async function pollAppleLikesSync(jobId) {
+        if (appleLikesSyncTimer) clearInterval(appleLikesSyncTimer);
         const div = document.getElementById('apple-likes-sync-progress');
+        const bar = document.getElementById('apple-likes-sync-bar');
+        const fill = bar.querySelector('.progress-fill');
         const render = async () => {
-          try{
-            const r = await fetch('/sync/apple/likes/status?job_id='+encodeURIComponent(jobId));
-            if(!r.ok){ div.textContent = 'Apple Music library sync status unavailable'; return; }
+          try {
+            const r = await fetch('/sync/apple/likes/status?job_id=' + encodeURIComponent(jobId));
+            if (!r.ok) { div.textContent = 'Apple Music library sync status unavailable'; return; }
             const s = await r.json();
-            if(s.state === 'error'){
-              div.innerHTML = `<span class="status-disconnected">Error: ${s.error||'unknown'}</span>`;
+            if (s.state === 'error') {
+              div.innerHTML = `<span class="status-disconnected">Error: ${s.error || 'unknown'}</span>`;
               clearInterval(appleLikesSyncTimer);
               document.getElementById('btn-sync-apple-likes').disabled = false;
+              fill.style.background = '#ef4444';
               return;
             }
             const total = s.total ?? 0;
             const processed = s.processed ?? 0;
             const added = s.added_to_library ?? 0;
             const pend = s.pending_count ?? 0;
-            if(s.state === 'done'){
+
+            const pct = total > 0 ? Math.round((processed / total) * 100) : 0;
+            fill.style.width = pct + '%';
+
+            if (s.state === 'done') {
               div.innerHTML = `<span class="status-connected">Done.</span> Tracks: ${total}, added to library: ${added}, pending: ${pend}.`;
               clearInterval(appleLikesSyncTimer);
               document.getElementById('btn-sync-apple-likes').disabled = false;
+              fill.style.width = '100%';
               return;
             }
             div.textContent = `Syncing Apple Music library… ${processed}/${total} (added: ${added}, pending: ${pend})`;
-          }catch(e){
+          } catch (e) {
             div.textContent = 'Error reading status: ' + e;
           }
         };

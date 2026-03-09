@@ -3,21 +3,31 @@
 <h2>Pending Track Matches</h2>
 <div style="background:#f0f8ff; border-left:4px solid #4a90e2; padding:12px; margin-bottom:16px; border-radius:4px;">
   <strong>ℹ️ Note:</strong> Resolving Apple Music matches requires an active Apple Music connection.
-  If resolution fails, ensure you've connected via <a href="/apple/connect" style="color:#4a90e2;">Apple Music Connect</a>.
+  If resolution fails, ensure you've connected via <a href="/auth/apple/connect" style="color:#4a90e2;">Apple Music Connect</a>.
 </div>
 {% if not items %}
 <p>No pending track matches. Great job!</p>
 {% else %}
+  <p style="margin-bottom:14px; color: var(--text-muted);">{{ items|length }} track{{ '' if items|length == 1 else 's' }} need{{ 's' if items|length == 1 else '' }} review.</p>
   {% for p in items %}
     <div class="pending-item">
       <h3>{{ p.spotify_title }} — <small>{{ p.spotify_artist }}</small></h3>
-      {% if p.target_service == 'tidal' %}
-        <span class="badge" style="background:#00d0ff; color:#000; padding:2px 8px; border-radius:4px; font-size:0.9em;">TIDAL</span>
-      {% elif p.target_service == 'apple' %}
-        <span class="badge" style="background:#fa2d48; color:#fff; padding:2px 8px; border-radius:4px; font-size:0.9em;">Apple Music</span>
-      {% else %}
-        <span class="badge" style="background:#666; color:#fff; padding:2px 8px; border-radius:4px; font-size:0.9em;">{{ p.target_service }}</span>
-      {% endif %}
+      <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px;">
+        {% if p.target_service == 'tidal' %}
+          <span class="badge" style="background:#00d0ff; color:#000; padding:2px 8px; border-radius:4px; font-size:0.9em;">TIDAL</span>
+        {% elif p.target_service == 'apple' %}
+          <span class="badge" style="background:#fa2d48; color:#fff; padding:2px 8px; border-radius:4px; font-size:0.9em;">Apple Music</span>
+        {% else %}
+          <span class="badge" style="background:#666; color:#fff; padding:2px 8px; border-radius:4px; font-size:0.9em;">{{ p.target_service }}</span>
+        {% endif %}
+        {% if p.isrc %}
+          <span class="badge" style="background:var(--surface-opaque); color:var(--text); border:1px solid var(--border); padding:2px 8px; border-radius:4px; font-size:0.85em;">ISRC: {{ p.isrc }}</span>
+        {% endif %}
+        {% if p.candidates and p.candidates|length > 0 %}
+          <span class="badge" style="background:var(--surface-opaque); color:var(--text); border:1px solid var(--border); padding:2px 8px; border-radius:4px; font-size:0.85em;">Candidates: {{ p.candidates|length }}</span>
+          <span class="badge" style="background:var(--surface-opaque); color:var(--text); border:1px solid var(--border); padding:2px 8px; border-radius:4px; font-size:0.85em;">Best score: {{ '%.0f'|format((p.candidates[0].score or 0)) }}</span>
+        {% endif %}
+      </div>
       <form method="post" action="/resolve-track/{{ p.id }}">
         <input type="hidden" name="target_service" value="{{ p.target_service }}" />
         {% if p.candidates and p.candidates|length > 0 %}
@@ -28,7 +38,7 @@
           {% else %}
             <label for="tsel-{{ p.id }}">Choose {{ p.target_service }} match:</label>
           {% endif %}
-          <select id="tsel-{{ p.id }}" name="target_id" onchange="(function(sel,form){ const opt = sel.options[sel.selectedIndex]; const txt = opt.text; const dash = txt.indexOf(' — '); form.querySelector('[name=target_title]').value = dash>0?txt.substring(0,dash):txt; form.querySelector('[name=target_artist]').value = dash>0?txt.substring(dash+3):''; const aid = opt.getAttribute('data-artist-id')||''; const hid=form.querySelector('[name=target_artist_id]'); if(hid) hid.value = aid; })(this,this.form)">
+          <select id="tsel-{{ p.id }}" name="target_id" onchange="(function(sel,form){ const opt = sel.options[sel.selectedIndex]; form.querySelector('[name=target_title]').value = opt.getAttribute('data-title') || ''; form.querySelector('[name=target_artist]').value = opt.getAttribute('data-artist') || ''; const aid = opt.getAttribute('data-artist-id')||''; const hid=form.querySelector('[name=target_artist_id]'); if(hid) hid.value = aid; })(this,this.form)">
             {% for c in p.candidates %}
               {% set a0 = (c.artists and c.artists[0]) or None %}
               {% if a0 and a0 is mapping %}
@@ -38,10 +48,12 @@
                 {% set artist_name = a0 or c.artist or '' %}
                 {% set artist_id = '' %}
               {% endif %}
-              <option value="{{ c.id }}" data-artist-id="{{ artist_id }}">{{ c.title }}{% if c.name %} — {{ c.name }}{% endif %}{% if artist_name %} — {{ artist_name }}{% endif %}{% if c.duration %} ({{ c.duration }}s){% endif %} ({{ '%.0f'|format(c.score) }})</option>
+              {% set display_title = c.title or c.name or '' %}
+              <option value="{{ c.id }}" data-title="{{ display_title }}" data-artist="{{ artist_name }}" data-artist-id="{{ artist_id }}">{{ display_title }}{% if artist_name %} — {{ artist_name }}{% endif %}{% if c.duration %} ({{ c.duration }}s){% endif %} ({{ '%.0f'|format(c.score or 0) }})</option>
             {% endfor %}
           </select>
-          <input type="hidden" name="target_title" value="{{ p.candidates[0].title or p.candidates[0].name or '' }}" />
+          {% set c0 = p.candidates[0] %}
+          <input type="hidden" name="target_title" value="{{ c0.title or c0.name or '' }}" />
           {% set a0 = (p.candidates[0].artists and p.candidates[0].artists[0]) or None %}
           {% if a0 and a0 is mapping %}
             {% set artist_name = a0.name %}
@@ -52,7 +64,7 @@
           {% endif %}
           <input type="hidden" name="target_artist" value="{{ artist_name }}" />
           <input type="hidden" name="target_artist_id" value="{{ artist_id }}" />
-          <button type="submit" class="btn">Apply</button>
+          <button type="submit" class="btn">Apply Match</button>
         {% else %}
           {% if p.target_service == 'tidal' %}
             <p>No suggested TIDAL matches found.</p>

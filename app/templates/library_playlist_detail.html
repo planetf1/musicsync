@@ -2,6 +2,7 @@
 {% block content %}
 <section>
   <h2>Playlist — {{ playlist.spotify_name }}</h2>
+  {% set svc = playlist.selected_service or 'tidal' %}
   <div style="margin-bottom:8px;">
     <span>Spotify: <a href="https://open.spotify.com/playlist/{{ playlist.spotify_id }}" target="_blank" rel="noopener">open</a></span>
     {% if playlist.tidal_id %}
@@ -11,6 +12,13 @@
       <span style="margin-left:12px;">Apple Music: <span title="Apple Music ID: {{ playlist.apple_id }}">✓</span></span>
     {% endif %}
   </div>
+  {% if playlist.tidal_id and playlist.apple_id %}
+  <div style="margin-bottom:10px;">
+    <strong>Service view:</strong>
+    <a class="btn{% if svc == 'tidal' %} secondary{% endif %}" href="/library/playlists/{{ playlist.spotify_id }}?service=tidal">TIDAL snapshot</a>
+    <a class="btn{% if svc == 'apple' %} secondary{% endif %}" href="/library/playlists/{{ playlist.spotify_id }}?service=apple">Apple snapshot</a>
+  </div>
+  {% endif %}
   {% if stats %}
     {% set total = stats.total_seconds or 0 %}
     {% set h = (total // 3600) | int %}
@@ -26,6 +34,7 @@
     <input type="text" name="q" value="{{ q }}" placeholder="Search tracks…" />
     <input type="hidden" name="sort" value="{{ sort }}" />
     <input type="hidden" name="order" value="{{ order }}" />
+    <input type="hidden" name="service" value="{{ svc }}" />
     {% set sizes = [10,25,100,250,1000,2500] %}
     <label for="psize" style="margin-left:8px;">Page size:</label>
     <select id="psize" name="page_size">
@@ -47,10 +56,10 @@
         <tr>
           {% set next_order = 'asc' if order=='desc' else 'desc' %}
           {% set page_size_param = 'all' if page_size == 0 else page_size %}
-          <th class="num"><a href="/library/playlists/{{ playlist.spotify_id }}?sort=position&order={{ next_order if sort=='position' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}"># {% if sort=='position' %}{% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th class="num"><a href="/library/playlists/{{ playlist.spotify_id }}?sort=position&order={{ next_order if sort=='position' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}&service={{ svc }}"># {% if sort=='position' %}{% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th>Service</th>
-          <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=spotify_title&order={{ next_order if sort=='spotify_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Title{% if sort=='spotify_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
-          <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=spotify_artist&order={{ next_order if sort=='spotify_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">Spotify Artist{% if sort=='spotify_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=spotify_title&order={{ next_order if sort=='spotify_title' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}&service={{ svc }}">Spotify Title{% if sort=='spotify_title' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th><a href="/library/playlists/{{ playlist.spotify_id }}?sort=spotify_artist&order={{ next_order if sort=='spotify_artist' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}&service={{ svc }}">Spotify Artist{% if sort=='spotify_artist' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th class="num">Duration</th>
           <th class="hide-sm">Target Title</th>
           <th class="hide-sm">Target Artist</th>
@@ -114,22 +123,22 @@
     {% set next_page = page + 1 %}
     {% set page_size_param = 'all' if page_size == 0 else page_size %}
     <span>Page {{ page }} of {{ pages }}</span>
-    <a class="btn" href="/library/playlists/{{ playlist.spotify_id }}?page={{ prev_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}" {% if page <= 1 %}style="pointer-events:none; opacity:0.5"{% endif %}>Prev</a>
+    <a class="btn" href="/library/playlists/{{ playlist.spotify_id }}?page={{ prev_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}&service={{ svc }}" {% if page <= 1 %}style="pointer-events:none; opacity:0.5"{% endif %}>Prev</a>
     {% set window = 2 %}
     {% set start = 1 if pages <= 10 else [1, page - window] | max %}
     {% set end = pages if pages <= 10 else [pages, page + window] | min %}
     {% if start > 1 %}
-      <a class="btn" href="/library/playlists/{{ playlist.spotify_id }}?page=1&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">1</a>
+      <a class="btn" href="/library/playlists/{{ playlist.spotify_id }}?page=1&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}&service={{ svc }}">1</a>
       {% if start > 2 %}<span>…</span>{% endif %}
     {% endif %}
     {% for pnum in range(start, end + 1) %}
-      <a class="btn{% if pnum == page %} secondary{% endif %}" href="/library/playlists/{{ playlist.spotify_id }}?page={{ pnum }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">{{ pnum }}</a>
+      <a class="btn{% if pnum == page %} secondary{% endif %}" href="/library/playlists/{{ playlist.spotify_id }}?page={{ pnum }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}&service={{ svc }}">{{ pnum }}</a>
     {% endfor %}
     {% if end < pages %}
       {% if end < pages - 1 %}<span>…</span>{% endif %}
-      <a class="btn" href="/library/playlists/{{ playlist.spotify_id }}?page={{ pages }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}">{{ pages }}</a>
+      <a class="btn" href="/library/playlists/{{ playlist.spotify_id }}?page={{ pages }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}&service={{ svc }}">{{ pages }}</a>
     {% endif %}
-    <a class="btn" href="/library/playlists/{{ playlist.spotify_id }}?page={{ next_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}" {% if page >= pages %}style="pointer-events:none; opacity:0.5"{% endif %}>Next</a>
+    <a class="btn" href="/library/playlists/{{ playlist.spotify_id }}?page={{ next_page }}&q={{ q }}&sort={{ sort }}&order={{ order }}&page_size={{ page_size_param }}&service={{ svc }}" {% if page >= pages %}style="pointer-events:none; opacity:0.5"{% endif %}>Next</a>
   </div>
   {% endif %}
 </section>
