@@ -1578,8 +1578,50 @@ def _run_sync_apple_likes_job(job_id: str, limit: int = 0) -> None:
                         pass
 
                 if apple_track:
+                    # Extract Apple Music track details
+                    apple_id = apple_track["id"]
+                    apple_title = apple_track.get("name", "")
+                    apple_artists = apple_track.get("artists", [])
+                    apple_artist_name = apple_artists[0] if apple_artists else None
+                    apple_duration_ms = apple_track.get("duration_ms")
+                    apple_duration = int(apple_duration_ms / 1000) if apple_duration_ms else None
+                    confidence = float(apple_track.get("score", 0.0))
+                    
+                    # Persist track mapping
+                    with SessionLocal() as db:
+                        upsert_track_map(
+                            db,
+                            tr["id"],
+                            title,
+                            artist,
+                            tr.get("artist_id"),
+                            apple_id,
+                            apple_title,
+                            apple_artist_name,
+                            None,  # apple_artist_id not available
+                            isrc,
+                            dur,
+                            apple_duration,
+                            confidence,
+                            True,
+                            target_service="apple",
+                        )
+                        delete_pending_track_by_spotify_id(db, tr["id"])
+                        add_track_sync_event(
+                            db,
+                            tr["id"],
+                            title,
+                            artist,
+                            apple_id,
+                            apple_title,
+                            apple_artist_name or "",
+                            isrc,
+                            "auto",
+                            target_service="apple",
+                        )
+                    
                     # Queue for batch add to library
-                    apple_tracks_to_add.append(apple_track["id"])
+                    apple_tracks_to_add.append(apple_id)
 
                     # Batch add in chunks of 100
                     if len(apple_tracks_to_add) >= 100:
@@ -1592,8 +1634,38 @@ def _run_sync_apple_likes_job(job_id: str, limit: int = 0) -> None:
                 else:
                     # No match found, add to pending
                     with SessionLocal() as db:
-                        # For now, we'll use the TIDAL pending system
-                        # In future, could add Apple-specific pending resolution
+                        # Store unmatched track in pending resolution queue
+                        if isinstance(apple_track, dict) and "score" in apple_track:
+                            # We have candidates but none met threshold
+                            add_pending_track_resolution(
+                                db, tr["id"], title, artist, isrc, [apple_track], target_service="apple"
+                            )
+                            confidence_score = float(apple_track.get("score", 0.0))
+                        else:
+                            # No candidates at all
+                            add_pending_track_resolution(
+                                db, tr["id"], title, artist, isrc, [], target_service="apple"
+                            )
+                            confidence_score = 0.0
+                        
+                        # Store partial mapping (unresolved)
+                        upsert_track_map(
+                            db,
+                            tr["id"],
+                            title,
+                            artist,
+                            tr.get("artist_id"),
+                            None,
+                            None,
+                            None,
+                            None,
+                            isrc,
+                            dur,
+                            None,
+                            confidence_score,
+                            False,
+                            target_service="apple",
+                        )
                         pending += 1
             except Exception:
                 pending += 1

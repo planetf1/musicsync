@@ -124,19 +124,23 @@ Then open:
 ### Connect accounts
 
 - Click “Connect Spotify” and complete the OAuth flow.
-- Click “Connect TIDAL” → follow the device login link and confirm.- Click "Connect Apple Music" → authenticate with your Apple ID via MusicKit
+- Click "Connect TIDAL" → follow the device login link and confirm.
+- Click "Connect Apple Music" → authenticate with your Apple ID via MusicKit
   (browser popup). Requires Apple Music subscription.
+
 ### Sync
 
 - “Sync Followed Artists” adds matches to TIDAL favorites.
 - “Sync Liked Tracks” adds songs to TIDAL favorites using ISRC-first mapping.
 - “Sync Playlists” creates/updates your user-owned Spotify playlists on TIDAL
-  and records the ordered track list locally.- Apple Music sync:
+  and records the ordered track list locally.
+- Apple Music sync:
   - "Sync Playlists to Apple Music" creates/updates your Spotify playlists on
     Apple Music with ISRC-first matching.
   - "Sync Liked Tracks to Apple Music" adds your Spotify liked tracks to your
     Apple Music library.
   - Note: Apple Music does not support artist following via API.
+
 ### Review & browse
 
 - Pending matches: resolve from the Pending pages.
@@ -157,8 +161,7 @@ Then open:
 
 We use the `tidalapi` device login flow. When you press “Connect TIDAL,” the
 UI shows a link/code to authorize. After completing it, refresh the app; your
-session is cached for reuse.
-## Notes on Apple Music setup
+session is cached for reuse.## Notes on Apple Music setup
 
 Apple Music integration requires an Apple Developer account with a MusicKit
 identifier and private key:
@@ -180,6 +183,7 @@ When you click "Connect Apple Music" in the UI, a popup opens for Apple ID
 authentication via MusicKit JS. The app generates a JWT developer token
 (ES256) and obtains a music user token for API access. Tokens are cached in
 the database for reuse.
+
 ## Idempotency & persistence
 
 - SQLite DB: `musicsync.db` in the project root.
@@ -193,14 +197,15 @@ the database for reuse.
   albums). If you hit the limit, TIDAL returns errors.
 - Playlist size: clients and APIs may behave differently for very large
   playlists; the app adds tracks in chunks and avoids duplicates.
-- Matching: ISRCs are preferred; otherwise, robust normalized fuzzy matching is
-  used, which may queue some items for manual review.
+- Matching: ISRCs are preferred; otherwise, robust normalized fuzzy matching
+  is used, which may queue some items for manual review.
 
 ## Backup endpoints
 
 - Download SQLite DB: `/backup/db`
 - JSON (legacy): `/backup/artists`, `/backup/tracks`, `/backup/playlists`
-- Multi-format exports: `/export/{artists|tracks|playlists}?format=json|csv|md&download=1`
+- Multi-format exports:
+  `/export/{artists|tracks|playlists}?format=json|csv|md&download=1`
 
 ## Contributing & design
 
@@ -233,9 +238,10 @@ Capabilities differ by target service due to API surface area and reliability.
   - Matching: ISRC-first, then fuzzy title/artist/duration scoring.
   - Limitations: Apple Music API does not support programmatic artist
     following/favoriting; "love/dislike" flags are read-only.
-  - Notes: storefront/region matters for search and availability; additions
-    are chunked (100 tracks per batch).
-  - Implementation notes: [docs/APPLE_MUSIC_INTEGRATION.md](docs/APPLE_MUSIC_INTEGRATION.md)
+- Notes: storefront/region matters for search and availability; additions are
+  chunked (100 tracks per batch).
+- Implementation notes:
+  [docs/APPLE_MUSIC_INTEGRATION.md](docs/APPLE_MUSIC_INTEGRATION.md)
 
 - YouTube Music (planned target)
   - No official public API; integration relies on `ytmusicapi` (reverse-
@@ -245,7 +251,8 @@ Capabilities differ by target service due to API surface area and reliability.
     reliable across accounts.
   - Matching is primarily text + duration based; prefer song entities over
     general videos and bias toward official artist channels.
-  - Design doc: [docs/YOUTUBE_MUSIC_INTEGRATION.md](docs/YOUTUBE_MUSIC_INTEGRATION.md)
+  - Design doc:
+    [docs/YOUTUBE_MUSIC_INTEGRATION.md](docs/YOUTUBE_MUSIC_INTEGRATION.md)
 
 We expose per-service capabilities clearly in the UI and keep an unmatched
 review flow for ambiguous mappings. Planned targets are feature-flagged and

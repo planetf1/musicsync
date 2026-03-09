@@ -555,12 +555,12 @@ def upsert_track_map(
     m.tidal_artist = tidal_artist
     m.tidal_artist_id = tidal_artist_id
     m.tidal_duration = tidal_duration
-    # Also store in generic target_ columns
-    m.target_id = tidal_id if target_service == "tidal" else m.target_id
-    m.target_title = tidal_title if target_service == "tidal" else m.target_title
-    m.target_artist = tidal_artist if target_service == "tidal" else m.target_artist
-    m.target_artist_id = tidal_artist_id if target_service == "tidal" else m.target_artist_id
-    m.target_duration = tidal_duration if target_service == "tidal" else m.target_duration
+    # Always store in generic target_ columns (tidal_* params are used generically)
+    m.target_id = tidal_id
+    m.target_title = tidal_title
+    m.target_artist = tidal_artist
+    m.target_artist_id = tidal_artist_id
+    m.target_duration = tidal_duration
     m.spotify_artist_id = spotify_artist_id
     m.isrc = isrc
     m.spotify_duration = spotify_duration
@@ -667,15 +667,21 @@ def add_track_sync_event(
     tidal_artist: str,
     isrc: str | None,
     source: str,
+    target_service: str = "tidal",
 ) -> None:
+    """Add track sync event. tidal_* params are used generically for any service."""
     db.add(
         TrackSyncEvent(
             spotify_id=spotify_id,
             spotify_title=spotify_title,
             spotify_artist=spotify_artist,
+            target_service=target_service,
             tidal_id=tidal_id,
             tidal_title=tidal_title,
             tidal_artist=tidal_artist,
+            target_id=tidal_id,
+            target_title=tidal_title,
+            target_artist=tidal_artist,
             isrc=isrc,
             source=source,
         )
