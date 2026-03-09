@@ -1892,12 +1892,17 @@ def _run_sync_apple_playlists_job(job_id: str, limit: int = 0) -> None:
         _job_set(job_id, state="error", error=str(e))
 
 
-def _run_sync_apple_followed_artists_playlist_job(job_id: str, limit: int = 0) -> None:
+def _run_sync_apple_followed_artists_playlist_job(job_id: str, limit: int = 0, rebuild: bool = False) -> None:
     """Create/update an Apple Music playlist representing Spotify followed artists.
 
     Since Apple Music API doesn't expose artist follow/favorite write endpoints,
     this job builds a deterministic fallback playlist with one representative
     track per followed artist.
+
+    Args:
+        job_id: Unique job identifier for progress tracking
+        limit: Optional limit on number of artists to process (0 = all)
+        rebuild: If True, clear existing playlist tracks before repopulating (strict rebuild mode)
     """
     _job_set(job_id, state="running", started_at=datetime.now(UTC).isoformat())
     try:
@@ -1978,6 +1983,17 @@ def _run_sync_apple_followed_artists_playlist_job(job_id: str, limit: int = 0) -
         if not apple_playlist_id:
             _job_set(job_id, state="error", error="Failed to create or load Apple fallback playlist")
             return
+
+        # Clear existing tracks if rebuild mode is enabled
+        tracks_removed = 0
+        if rebuild and preexisting:
+            try:
+                _log.info(f"[job {job_id}] Rebuild mode: clearing existing tracks from playlist")
+                tracks_removed = apple_client.clear_playlist_tracks(apple_playlist_id)
+                _log.info(f"[job {job_id}] Removed {tracks_removed} tracks from playlist")
+            except Exception as e:
+                _log.warning(f"[job {job_id}] Failed to clear playlist tracks: {e}")
+                # Continue with sync even if clear fails
 
         processed = 0
         mapped = 0
@@ -2108,6 +2124,8 @@ def _run_sync_apple_followed_artists_playlist_job(job_id: str, limit: int = 0) -
             playlist_name=APPLE_FOLLOWED_ARTISTS_PLAYLIST_NAME,
             created=(0 if preexisting else 1),
             updated=(1 if preexisting and added_to_apple > 0 else 0),
+            rebuild=rebuild,
+            tracks_removed=tracks_removed,
         )
     except Exception as e:
         _job_set(job_id, state="error", error=str(e))
@@ -2207,15 +2225,26 @@ async def sync_apple_playlists_status(job_id: str):
 
 @app.post("/sync/apple/followed-artists-playlist/start")
 async def start_sync_apple_followed_artists_playlist(request: Request):
-    """Start creating/updating fallback Apple playlist for Spotify followed artists."""
+    """Start creating/updating fallback Apple playlist for Spotify followed artists.
+
+    Query parameters:
+        limit: Optional limit on number of artists to process (0 = all)
+        rebuild: If 'true', clear existing playlist tracks before repopulating (strict rebuild mode)
+    """
     limit_param = request.query_params.get("limit")
+    rebuild_param = request.query_params.get("rebuild", "").lower()
     try:
         limit = int(limit_param) if limit_param else 0
     except ValueError:
         limit = 0
+    rebuild = rebuild_param in ("true", "1", "yes")
     job_id = str(uuid.uuid4())
-    _job_set(job_id, state="pending", limit=limit)
-    threading.Thread(target=_run_sync_apple_followed_artists_playlist_job, args=(job_id, limit), daemon=True).start()
+    _job_set(job_id, state="pending", limit=limit, rebuild=rebuild)
+    threading.Thread(
+        target=_run_sync_apple_followed_artists_playlist_job,
+        args=(job_id, limit, rebuild),
+        daemon=True,
+    ).start()
     return JSONResponse({"job_id": job_id})
 
 

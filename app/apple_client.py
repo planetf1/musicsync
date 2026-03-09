@@ -331,6 +331,50 @@ class AppleMusicClient:
 
         return AddResult(requested=len(ids), succeeded=succeeded, failed=len(ids) - succeeded)
 
+    def get_playlist_tracks(self, playlist_id: str) -> list[dict[str, Any]]:
+        """Get all tracks in a playlist."""
+        tracks: list[dict[str, Any]] = []
+        next_url: str | None = f"/me/library/playlists/{playlist_id}/tracks"
+
+        while next_url:
+            payload = self._request("GET", next_url, params={"limit": 100}, require_user_token=True)
+            for item in payload.get("data") or []:
+                tracks.append(item)
+            next_raw = payload.get("next")
+            next_url = str(next_raw) if next_raw else None
+            if next_url and next_url.startswith("https://api.music.apple.com/v1"):
+                next_url = next_url.replace("https://api.music.apple.com/v1", "", 1)
+
+        return tracks
+
+    def clear_playlist_tracks(self, playlist_id: str) -> int:
+        """Remove all tracks from a playlist. Returns count of tracks removed."""
+        tracks = self.get_playlist_tracks(playlist_id)
+        if not tracks:
+            return 0
+
+        track_ids = [str(t.get("id") or "") for t in tracks if t.get("id")]
+        if not track_ids:
+            return 0
+
+        # Delete in chunks
+        chunk_size = 100
+        removed = 0
+
+        for i in range(0, len(track_ids), chunk_size):
+            chunk = track_ids[i : i + chunk_size]
+            # Use comma-separated track IDs as query parameter
+            track_ids_param = ",".join(chunk)
+            self._request(
+                "DELETE",
+                f"/me/library/playlists/{playlist_id}/tracks",
+                params={"ids[library-songs]": track_ids_param},
+                require_user_token=True,
+            )
+            removed += len(chunk)
+
+        return removed
+
     def add_tracks_to_library(self, track_ids: list[str]) -> AddResult:
         ids = [str(t).strip() for t in track_ids if str(t).strip()]
         if not ids:

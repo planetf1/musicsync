@@ -611,6 +611,82 @@ class TestPlaylistOperations:
         assert result.succeeded == 0
         assert result.failed == 0
 
+    @patch("app.apple_client.AppleMusicClient._request")
+    def test_get_playlist_tracks_returns_all_tracks(self, mock_request):
+        mock_request.return_value = {
+            "data": [
+                {"id": "track1", "type": "library-songs"},
+                {"id": "track2", "type": "library-songs"},
+            ],
+            "next": None,
+        }
+
+        client = AppleMusicClient()
+        tracks = client.get_playlist_tracks("pl123")
+
+        assert len(tracks) == 2
+        assert tracks[0]["id"] == "track1"
+        assert tracks[1]["id"] == "track2"
+
+    @patch("app.apple_client.AppleMusicClient._request")
+    def test_get_playlist_tracks_handles_pagination(self, mock_request):
+        mock_request.side_effect = [
+            {
+                "data": [{"id": "track1", "type": "library-songs"}],
+                "next": f"{APPLE_BASE_URL}/me/library/playlists/pl123/tracks?offset=1",
+            },
+            {
+                "data": [{"id": "track2", "type": "library-songs"}],
+                "next": None,
+            },
+        ]
+
+        client = AppleMusicClient()
+        tracks = client.get_playlist_tracks("pl123")
+
+        assert len(tracks) == 2
+        assert mock_request.call_count == 2
+
+    @patch("app.apple_client.AppleMusicClient.get_playlist_tracks")
+    @patch("app.apple_client.AppleMusicClient._request")
+    def test_clear_playlist_tracks_removes_all_tracks(self, mock_request, mock_get_tracks):
+        mock_get_tracks.return_value = [
+            {"id": "track1", "type": "library-songs"},
+            {"id": "track2", "type": "library-songs"},
+            {"id": "track3", "type": "library-songs"},
+        ]
+        mock_request.return_value = {}
+
+        client = AppleMusicClient()
+        removed = client.clear_playlist_tracks("pl123")
+
+        assert removed == 3
+        mock_get_tracks.assert_called_once_with("pl123")
+        mock_request.assert_called_once()
+
+    @patch("app.apple_client.AppleMusicClient.get_playlist_tracks")
+    @patch("app.apple_client.AppleMusicClient._request")
+    def test_clear_playlist_tracks_chunks_deletes(self, mock_request, mock_get_tracks):
+        # Create 250 tracks to test chunking
+        mock_get_tracks.return_value = [{"id": f"track{i}", "type": "library-songs"} for i in range(250)]
+        mock_request.return_value = {}
+
+        client = AppleMusicClient()
+        removed = client.clear_playlist_tracks("pl123")
+
+        # 250 tracks should be chunked into 3 DELETE requests (100, 100, 50)
+        assert removed == 250
+        assert mock_request.call_count == 3
+
+    @patch("app.apple_client.AppleMusicClient.get_playlist_tracks")
+    def test_clear_playlist_tracks_handles_empty_playlist(self, mock_get_tracks):
+        mock_get_tracks.return_value = []
+
+        client = AppleMusicClient()
+        removed = client.clear_playlist_tracks("pl123")
+
+        assert removed == 0
+
 
 @pytest.mark.integration
 class TestLibraryOperations:

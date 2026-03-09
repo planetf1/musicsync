@@ -312,9 +312,12 @@
         div.textContent = 'Starting Apple Music followed-artists fallback sync…';
         try{
           const debugLimit = document.getElementById('chk-limit-apple-followed-artists-25')?.checked ? 25 : 0;
-          const url = debugLimit
-            ? ('/sync/apple/followed-artists-playlist/start?limit=' + debugLimit)
-            : '/sync/apple/followed-artists-playlist/start';
+          const rebuild = document.getElementById('chk-rebuild-apple-followed-artists')?.checked;
+          let url = '/sync/apple/followed-artists-playlist/start';
+          const params = new URLSearchParams();
+          if (debugLimit) params.append('limit', debugLimit);
+          if (rebuild) params.append('rebuild', 'true');
+          if (params.toString()) url += '?' + params.toString();
           const resp = await fetch(url, {method:'POST'});
           if(!resp.ok){ div.textContent = 'Failed to start Apple Music followed-artists fallback sync.'; btn.disabled = false; return; }
           const data = await resp.json();
@@ -344,8 +347,15 @@
             const unavailable = s.unavailable ?? 0;
             const added = s.added_to_apple ?? 0;
             const playlistName = s.playlist_name || 'Followed Artists from Spotify';
+            const rebuild = s.rebuild ?? false;
+            const tracksRemoved = s.tracks_removed ?? 0;
             if(s.state === 'done'){
-              div.innerHTML = `<span class="status-connected">Done.</span> Artists: ${total}, mapped: ${mapped}, unavailable: ${unavailable}, tracks added: ${added}. Playlist: <strong>${playlistName}</strong>.`;
+              let msg = `<span class="status-connected">Done.</span> Artists: ${total}, mapped: ${mapped}, unavailable: ${unavailable}`;
+              if (rebuild && tracksRemoved > 0) {
+                msg += `, tracks removed: ${tracksRemoved}`;
+              }
+              msg += `, tracks added: ${added}. Playlist: <strong>${playlistName}</strong>.`;
+              div.innerHTML = msg;
               clearInterval(appleFollowedArtistsSyncTimer);
               document.getElementById('btn-sync-apple-followed-artists').disabled = false;
               return;
@@ -362,6 +372,9 @@
   </div>
   <div style="margin-top:6px">
     <label><input type="checkbox" id="chk-limit-apple-followed-artists-25" /> Debug: limit to first 25 artists</label>
+  </div>
+  <div style="margin-top:6px">
+    <label><input type="checkbox" id="chk-rebuild-apple-followed-artists" /> Rebuild mode: clear existing tracks before repopulating</label>
   </div>
   {% endif %}
   <hr />
