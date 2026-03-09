@@ -53,6 +53,11 @@ SPOTIFY_REDIRECT_URI=http://localhost:8000/auth/spotify/callback
 # Set to 'false', '0', or 'no' to disable TIDAL sync
 TIDAL_ENABLED=true
 
+# Apple Music integration (for Apple sync target)
+APPLE_MUSIC_TEAM_ID=<your Apple Developer Team ID>
+APPLE_MUSIC_KEY_ID=<your MusicKit key ID>
+APPLE_MUSIC_PRIVATE_KEY_PATH=/absolute/path/to/AuthKey_XXXXXXXXXX.p8
+
 # Optional: used by the musicsync CLI entrypoint
 MUSICSYNC_HOST=127.0.0.1
 MUSICSYNC_PORT=8000
