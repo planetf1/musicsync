@@ -49,6 +49,10 @@ SPOTIFY_CLIENT_ID=<your id>
 SPOTIFY_CLIENT_SECRET=<your secret>
 SPOTIFY_REDIRECT_URI=http://localhost:8000/auth/spotify/callback
 
+# Optional: disable TIDAL integration (default: enabled)
+# Set to 'false', '0', or 'no' to disable TIDAL sync
+TIDAL_ENABLED=true
+
 # Optional: used by the musicsync CLI entrypoint
 MUSICSYNC_HOST=127.0.0.1
 MUSICSYNC_PORT=8000

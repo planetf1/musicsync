@@ -29,17 +29,24 @@ class Base(DeclarativeBase):
 
 class Token(Base):
     __tablename__ = "tokens"
-    service: Mapped[str] = mapped_column(String(20), primary_key=True)  # 'spotify' | 'tidal'
+    service: Mapped[str] = mapped_column(String(20), primary_key=True)  # 'spotify' | 'tidal' | 'apple'
+    # For 'apple': data JSON contains {"developer_token": "...", "user_token": "...", ...}
     data: Mapped[str] = mapped_column(Text, nullable=False)  # JSON blob
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class ArtistMap(Base):
     __tablename__ = "artist_map"
+    # Composite primary key: (spotify_id, target_service)
     spotify_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    target_service: Mapped[str] = mapped_column(String(20), primary_key=True, default="tidal")  # 'tidal' | 'apple'
     spotify_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Legacy TIDAL-specific columns (kept for backwards compatibility, use target_* for new services)
     tidal_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     tidal_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Generic target columns (use these for Apple Music and future services)
+    target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     resolved: Mapped[bool] = mapped_column(Boolean, default=False)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -52,6 +59,7 @@ class PendingResolution(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     spotify_id: Mapped[str] = mapped_column(String(64), nullable=False)
     spotify_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    target_service: Mapped[str] = mapped_column(String(20), nullable=False, default="tidal")  # 'tidal' | 'apple'
     candidates_json: Mapped[str] = mapped_column(Text, nullable=False)  # JSON list of {id,name,score}
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -69,17 +77,26 @@ class RunLog(Base):
 
 class TrackMap(Base):
     __tablename__ = "track_map"
+    # Composite primary key: (spotify_id, target_service)
     spotify_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    target_service: Mapped[str] = mapped_column(String(20), primary_key=True, default="tidal")  # 'tidal' | 'apple'
     spotify_title: Mapped[str] = mapped_column(String(512), nullable=False)
     spotify_artist: Mapped[str] = mapped_column(String(512), nullable=False)
     spotify_artist_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Legacy TIDAL-specific columns (kept for backwards compatibility)
     tidal_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     tidal_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
     tidal_artist: Mapped[str | None] = mapped_column(String(512), nullable=True)
     tidal_artist_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    tidal_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)  # seconds
+    # Generic target columns (use these for Apple Music and future services)
+    target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    target_artist: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    target_artist_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)  # seconds
     isrc: Mapped[str | None] = mapped_column(String(32), nullable=True)
     spotify_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)  # seconds
-    tidal_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)  # seconds
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     resolved: Mapped[bool] = mapped_column(Boolean, default=False)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
@@ -91,6 +108,7 @@ class PendingTrackResolution(Base):
     spotify_id: Mapped[str] = mapped_column(String(64), nullable=False)
     spotify_title: Mapped[str] = mapped_column(String(512), nullable=False)
     spotify_artist: Mapped[str] = mapped_column(String(512), nullable=False)
+    target_service: Mapped[str] = mapped_column(String(20), nullable=False, default="tidal")  # 'tidal' | 'apple'
     isrc: Mapped[str | None] = mapped_column(String(32), nullable=True)
     candidates_json: Mapped[str] = mapped_column(
         Text, nullable=False
@@ -106,8 +124,13 @@ class ArtistSyncEvent(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     spotify_id: Mapped[str] = mapped_column(String(64), nullable=False)
     spotify_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    target_service: Mapped[str] = mapped_column(String(20), nullable=False, default="tidal")  # 'tidal' | 'apple'
+    # Legacy TIDAL columns
     tidal_id: Mapped[str] = mapped_column(String(64), nullable=False)
     tidal_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    # Generic target columns
+    target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     source: Mapped[str] = mapped_column(String(16), nullable=False)  # 'auto' | 'manual'
     synced_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -118,9 +141,15 @@ class TrackSyncEvent(Base):
     spotify_id: Mapped[str] = mapped_column(String(64), nullable=False)
     spotify_title: Mapped[str] = mapped_column(String(512), nullable=False)
     spotify_artist: Mapped[str] = mapped_column(String(512), nullable=False)
+    target_service: Mapped[str] = mapped_column(String(20), nullable=False, default="tidal")  # 'tidal' | 'apple'
+    # Legacy TIDAL columns
     tidal_id: Mapped[str] = mapped_column(String(64), nullable=False)
     tidal_title: Mapped[str] = mapped_column(String(512), nullable=False)
     tidal_artist: Mapped[str] = mapped_column(String(512), nullable=False)
+    # Generic target columns
+    target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    target_artist: Mapped[str | None] = mapped_column(String(512), nullable=True)
     isrc: Mapped[str | None] = mapped_column(String(32), nullable=True)
     source: Mapped[str] = mapped_column(String(16), nullable=False)  # 'auto' | 'manual'
     synced_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -131,10 +160,16 @@ class TrackSyncEvent(Base):
 
 class PlaylistMap(Base):
     __tablename__ = "playlist_map"
+    # Composite primary key: (spotify_id, target_service)
     spotify_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    target_service: Mapped[str] = mapped_column(String(20), primary_key=True, default="tidal")  # 'tidal' | 'apple'
     spotify_name: Mapped[str] = mapped_column(String(512), nullable=False)
+    # Legacy TIDAL-specific columns (kept for backwards compatibility)
     tidal_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     tidal_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Generic target columns (use these for Apple Music and future services)
+    target_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
     last_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
@@ -142,63 +177,188 @@ class PlaylistTrack(Base):
     __tablename__ = "playlist_track"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     playlist_spotify_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    target_service: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="tidal", index=True
+    )  # 'tidal' | 'apple'
     position: Mapped[int] = mapped_column(Integer, nullable=False)  # 1-based order from Spotify
     spotify_track_id: Mapped[str] = mapped_column(String(64), nullable=False)
     spotify_title: Mapped[str] = mapped_column(String(512), nullable=False)
     spotify_artist: Mapped[str] = mapped_column(String(512), nullable=False)
+    # Legacy TIDAL-specific columns
     tidal_track_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     tidal_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
     tidal_artist: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    # Generic target columns
+    target_track_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    target_title: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    target_artist: Mapped[str | None] = mapped_column(String(512), nullable=True)
     isrc: Mapped[str | None] = mapped_column(String(32), nullable=True)
     spotify_duration: Mapped[int | None] = mapped_column(Integer, nullable=True)  # seconds
     last_synced_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 def init_db() -> None:
+    """Initialize database and run migrations for multi-service support."""
     Base.metadata.create_all(bind=engine)
-    # Lightweight migrations for SQLite: add missing columns to track_map
+
+    # Lightweight migrations for SQLite: add missing columns and migrate to multi-service schema
     try:
         with engine.connect() as conn:
-            res = conn.exec_driver_sql("PRAGMA table_info('track_map')")
-            cols = {row[1] for row in res.fetchall()}
-            if 'spotify_artist_id' not in cols:
-                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN spotify_artist_id VARCHAR(64)")
-            if 'tidal_artist_id' not in cols:
-                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN tidal_artist_id VARCHAR(64)")
-            if 'spotify_duration' not in cols:
-                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN spotify_duration INTEGER")
-            if 'tidal_duration' not in cols:
-                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN tidal_duration INTEGER")
-            # Ensure artist_map has genres_json column
+            # === artist_map migrations ===
             res_art = conn.exec_driver_sql("PRAGMA table_info('artist_map')")
             art_cols = {row[1] for row in res_art.fetchall()}
+
             if 'genres_json' not in art_cols:
-                try:
-                    conn.exec_driver_sql("ALTER TABLE artist_map ADD COLUMN genres_json TEXT")
-                except Exception:
-                    pass
-            # Ensure playlist_map table exists
-            res2 = conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table' AND name='playlist_map'")
-            if not res2.fetchall():
+                conn.exec_driver_sql("ALTER TABLE artist_map ADD COLUMN genres_json TEXT")
+            if 'target_service' not in art_cols:
+                conn.exec_driver_sql("ALTER TABLE artist_map ADD COLUMN target_service VARCHAR(20) DEFAULT 'tidal'")
+            if 'target_id' not in art_cols:
+                conn.exec_driver_sql("ALTER TABLE artist_map ADD COLUMN target_id VARCHAR(64)")
+            if 'target_name' not in art_cols:
+                conn.exec_driver_sql("ALTER TABLE artist_map ADD COLUMN target_name VARCHAR(255)")
+
+            # Backfill target_* columns from tidal_* for existing rows
+            conn.exec_driver_sql(
+                "UPDATE artist_map SET target_id = tidal_id, target_name = tidal_name "
+                "WHERE target_service = 'tidal' AND target_id IS NULL AND tidal_id IS NOT NULL"
+            )
+
+            # === track_map migrations ===
+            res_track = conn.exec_driver_sql("PRAGMA table_info('track_map')")
+            track_cols = {row[1] for row in res_track.fetchall()}
+
+            if 'spotify_artist_id' not in track_cols:
+                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN spotify_artist_id VARCHAR(64)")
+            if 'tidal_artist_id' not in track_cols:
+                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN tidal_artist_id VARCHAR(64)")
+            if 'spotify_duration' not in track_cols:
+                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN spotify_duration INTEGER")
+            if 'tidal_duration' not in track_cols:
+                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN tidal_duration INTEGER")
+            if 'target_service' not in track_cols:
+                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN target_service VARCHAR(20) DEFAULT 'tidal'")
+            if 'target_id' not in track_cols:
+                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN target_id VARCHAR(64)")
+            if 'target_title' not in track_cols:
+                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN target_title VARCHAR(512)")
+            if 'target_artist' not in track_cols:
+                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN target_artist VARCHAR(512)")
+            if 'target_artist_id' not in track_cols:
+                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN target_artist_id VARCHAR(64)")
+            if 'target_duration' not in track_cols:
+                conn.exec_driver_sql("ALTER TABLE track_map ADD COLUMN target_duration INTEGER")
+
+            # Backfill target_* columns from tidal_* for existing rows
+            conn.exec_driver_sql(
+                "UPDATE track_map SET "
+                "target_id = tidal_id, target_title = tidal_title, target_artist = tidal_artist, "
+                "target_artist_id = tidal_artist_id, target_duration = tidal_duration "
+                "WHERE target_service = 'tidal' AND target_id IS NULL AND tidal_id IS NOT NULL"
+            )
+
+            # === playlist_map migrations ===
+            res_pl = conn.exec_driver_sql("SELECT name FROM sqlite_master WHERE type='table' AND name='playlist_map'")
+            if not res_pl.fetchall():
                 conn.exec_driver_sql(
                     "CREATE TABLE playlist_map ("
-                    "spotify_id VARCHAR(64) PRIMARY KEY, "
+                    "spotify_id VARCHAR(64) NOT NULL, "
+                    "target_service VARCHAR(20) NOT NULL DEFAULT 'tidal', "
                     "spotify_name VARCHAR(512) NOT NULL, "
                     "tidal_id VARCHAR(64), "
                     "tidal_name VARCHAR(512), "
-                    "last_synced_at DATETIME)"
+                    "target_id VARCHAR(64), "
+                    "target_name VARCHAR(512), "
+                    "last_synced_at DATETIME, "
+                    "PRIMARY KEY (spotify_id, target_service))"
                 )
-            # Ensure playlist_track table has spotify_duration
-            res3 = conn.exec_driver_sql("PRAGMA table_info('playlist_track')")
-            pcols = {row[1] for row in res3.fetchall()}
-            if 'spotify_duration' not in pcols:
-                try:
-                    conn.exec_driver_sql("ALTER TABLE playlist_track ADD COLUMN spotify_duration INTEGER")
-                except Exception:
-                    pass
-    except Exception:
-        # Best-effort; if migration fails, app still runs without new columns
-        pass
+            else:
+                res_plcols = conn.exec_driver_sql("PRAGMA table_info('playlist_map')")
+                pl_cols = {row[1] for row in res_plcols.fetchall()}
+                if 'target_service' not in pl_cols:
+                    conn.exec_driver_sql(
+                        "ALTER TABLE playlist_map ADD COLUMN target_service VARCHAR(20) DEFAULT 'tidal'"
+                    )
+                if 'target_id' not in pl_cols:
+                    conn.exec_driver_sql("ALTER TABLE playlist_map ADD COLUMN target_id VARCHAR(64)")
+                if 'target_name' not in pl_cols:
+                    conn.exec_driver_sql("ALTER TABLE playlist_map ADD COLUMN target_name VARCHAR(512)")
+
+                # Backfill target_* columns from tidal_* for existing rows
+                conn.exec_driver_sql(
+                    "UPDATE playlist_map SET target_id = tidal_id, target_name = tidal_name "
+                    "WHERE target_service = 'tidal' AND target_id IS NULL AND tidal_id IS NOT NULL"
+                )
+
+            # === playlist_track migrations ===
+            res_pt = conn.exec_driver_sql("PRAGMA table_info('playlist_track')")
+            pt_cols = {row[1] for row in res_pt.fetchall()}
+
+            if 'spotify_duration' not in pt_cols:
+                conn.exec_driver_sql("ALTER TABLE playlist_track ADD COLUMN spotify_duration INTEGER")
+            if 'target_service' not in pt_cols:
+                conn.exec_driver_sql("ALTER TABLE playlist_track ADD COLUMN target_service VARCHAR(20) DEFAULT 'tidal'")
+            if 'target_track_id' not in pt_cols:
+                conn.exec_driver_sql("ALTER TABLE playlist_track ADD COLUMN target_track_id VARCHAR(64)")
+            if 'target_title' not in pt_cols:
+                conn.exec_driver_sql("ALTER TABLE playlist_track ADD COLUMN target_title VARCHAR(512)")
+            if 'target_artist' not in pt_cols:
+                conn.exec_driver_sql("ALTER TABLE playlist_track ADD COLUMN target_artist VARCHAR(512)")
+
+            # Backfill target_* columns from tidal_* for existing rows
+            conn.exec_driver_sql(
+                "UPDATE playlist_track SET "
+                "target_track_id = tidal_track_id, target_title = tidal_title, target_artist = tidal_artist "
+                "WHERE target_service = 'tidal' AND target_track_id IS NULL AND tidal_track_id IS NOT NULL"
+            )
+
+            # === pending_resolution migrations ===
+            res_pend = conn.exec_driver_sql("PRAGMA table_info('pending_resolution')")
+            pend_cols = {row[1] for row in res_pend.fetchall()}
+            if 'target_service' not in pend_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE pending_resolution ADD COLUMN target_service VARCHAR(20) DEFAULT 'tidal'"
+                )
+
+            # === pending_track_resolution migrations ===
+            res_ptrack = conn.exec_driver_sql("PRAGMA table_info('pending_track_resolution')")
+            ptrack_cols = {row[1] for row in res_ptrack.fetchall()}
+            if 'target_service' not in ptrack_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE pending_track_resolution ADD COLUMN target_service VARCHAR(20) DEFAULT 'tidal'"
+                )
+
+            # === artist_sync_event migrations ===
+            res_ase = conn.exec_driver_sql("PRAGMA table_info('artist_sync_event')")
+            ase_cols = {row[1] for row in res_ase.fetchall()}
+            if 'target_service' not in ase_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE artist_sync_event ADD COLUMN target_service VARCHAR(20) DEFAULT 'tidal'"
+                )
+            if 'target_id' not in ase_cols:
+                conn.exec_driver_sql("ALTER TABLE artist_sync_event ADD COLUMN target_id VARCHAR(64)")
+            if 'target_name' not in ase_cols:
+                conn.exec_driver_sql("ALTER TABLE artist_sync_event ADD COLUMN target_name VARCHAR(255)")
+
+            # === track_sync_event migrations ===
+            res_tse = conn.exec_driver_sql("PRAGMA table_info('track_sync_event')")
+            tse_cols = {row[1] for row in res_tse.fetchall()}
+            if 'target_service' not in tse_cols:
+                conn.exec_driver_sql(
+                    "ALTER TABLE track_sync_event ADD COLUMN target_service VARCHAR(20) DEFAULT 'tidal'"
+                )
+            if 'target_id' not in tse_cols:
+                conn.exec_driver_sql("ALTER TABLE track_sync_event ADD COLUMN target_id VARCHAR(64)")
+            if 'target_title' not in tse_cols:
+                conn.exec_driver_sql("ALTER TABLE track_sync_event ADD COLUMN target_title VARCHAR(512)")
+            if 'target_artist' not in tse_cols:
+                conn.exec_driver_sql("ALTER TABLE track_sync_event ADD COLUMN target_artist VARCHAR(512)")
+
+            conn.commit()
+    except Exception as e:
+        # Best-effort; if migration fails, log it but allow app to continue
+        import logging
+
+        logging.getLogger("musicsync.storage").warning(f"Database migration warning: {e}")
 
 
 def get_db():
@@ -241,26 +401,47 @@ def upsert_artist_map(
     tidal_name: str | None,
     confidence: float,
     resolved: bool,
+    target_service: str = "tidal",
 ) -> None:
-    m = db.get(ArtistMap, spotify_id)
+    """Upsert artist mapping. For backwards compat, tidal_id/tidal_name params are kept.
+
+    For TIDAL: pass tidal_id/tidal_name and they'll be stored in both legacy and target_ columns.
+    For Apple Music: pass target_service='apple', set tidal_id=None, and use separate function or
+    update target_id/target_name directly on the returned object.
+    """
+    m = (
+        db.query(ArtistMap)
+        .filter(ArtistMap.spotify_id == spotify_id, ArtistMap.target_service == target_service)
+        .first()
+    )
     if not m:
-        m = ArtistMap(spotify_id=spotify_id, spotify_name=spotify_name)
+        m = ArtistMap(spotify_id=spotify_id, spotify_name=spotify_name, target_service=target_service)
         db.add(m)
+    # Store in legacy TIDAL columns
     m.tidal_id = tidal_id
     m.tidal_name = tidal_name
+    # Also store in generic target_ columns
+    m.target_id = tidal_id if target_service == "tidal" else m.target_id
+    m.target_name = tidal_name if target_service == "tidal" else m.target_name
     m.confidence = confidence
     m.resolved = resolved
-    m.last_synced_at = datetime.utcnow() if tidal_id else None
+    m.last_synced_at = datetime.utcnow() if (tidal_id or m.target_id) else None
     db.commit()
 
 
-def update_artist_genres(db: OrmSession, spotify_id: str, genres: list[str] | None) -> None:
+def update_artist_genres(
+    db: OrmSession, spotify_id: str, genres: list[str] | None, target_service: str = "tidal"
+) -> None:
     """Update stored genres for a Spotify artist.
 
     Genres are stored as a JSON-encoded list on ArtistMap.genres_json. This does not
     alter match status; it's safe to call independently of syncing.
     """
-    m = db.get(ArtistMap, spotify_id)
+    m = (
+        db.query(ArtistMap)
+        .filter(ArtistMap.spotify_id == spotify_id, ArtistMap.target_service == target_service)
+        .first()
+    )
     if not m:
         return
     try:
@@ -272,11 +453,24 @@ def update_artist_genres(db: OrmSession, spotify_id: str, genres: list[str] | No
 
 
 def add_pending_resolution(
-    db: OrmSession, spotify_id: str, spotify_name: str, candidates: Sequence[dict[str, Any]]
+    db: OrmSession,
+    spotify_id: str,
+    spotify_name: str,
+    candidates: Sequence[dict[str, Any]],
+    target_service: str = "tidal",
 ) -> None:
-    # Remove any existing pending for this spotify_id to keep latest
-    db.query(PendingResolution).filter(PendingResolution.spotify_id == spotify_id).delete()
-    db.add(PendingResolution(spotify_id=spotify_id, spotify_name=spotify_name, candidates_json=json.dumps(candidates)))
+    # Remove any existing pending for this spotify_id+target_service to keep latest
+    db.query(PendingResolution).filter(
+        PendingResolution.spotify_id == spotify_id, PendingResolution.target_service == target_service
+    ).delete()
+    db.add(
+        PendingResolution(
+            spotify_id=spotify_id,
+            spotify_name=spotify_name,
+            target_service=target_service,
+            candidates_json=json.dumps(candidates),
+        )
+    )
     db.commit()
 
 
@@ -343,34 +537,57 @@ def upsert_track_map(
     tidal_duration: int | None,
     confidence: float,
     resolved: bool,
+    target_service: str = "tidal",
 ) -> None:
-    m = db.get(TrackMap, spotify_id)
+    """Upsert track mapping. For backwards compat, tidal_* params are kept."""
+    m = db.query(TrackMap).filter(TrackMap.spotify_id == spotify_id, TrackMap.target_service == target_service).first()
     if not m:
-        m = TrackMap(spotify_id=spotify_id, spotify_title=spotify_title, spotify_artist=spotify_artist)
+        m = TrackMap(
+            spotify_id=spotify_id,
+            spotify_title=spotify_title,
+            spotify_artist=spotify_artist,
+            target_service=target_service,
+        )
         db.add(m)
+    # Store in legacy TIDAL columns
     m.tidal_id = tidal_id
     m.tidal_title = tidal_title
     m.tidal_artist = tidal_artist
-    m.spotify_artist_id = spotify_artist_id
     m.tidal_artist_id = tidal_artist_id
+    m.tidal_duration = tidal_duration
+    # Also store in generic target_ columns
+    m.target_id = tidal_id if target_service == "tidal" else m.target_id
+    m.target_title = tidal_title if target_service == "tidal" else m.target_title
+    m.target_artist = tidal_artist if target_service == "tidal" else m.target_artist
+    m.target_artist_id = tidal_artist_id if target_service == "tidal" else m.target_artist_id
+    m.target_duration = tidal_duration if target_service == "tidal" else m.target_duration
+    m.spotify_artist_id = spotify_artist_id
     m.isrc = isrc
     m.spotify_duration = spotify_duration
-    m.tidal_duration = tidal_duration
     m.confidence = confidence
     m.resolved = resolved
-    m.last_synced_at = datetime.utcnow() if tidal_id else None
+    m.last_synced_at = datetime.utcnow() if (tidal_id or m.target_id) else None
     db.commit()
 
 
 def add_pending_track_resolution(
-    db: OrmSession, spotify_id: str, title: str, artist: str, isrc: str | None, candidates: Sequence[dict[str, Any]]
+    db: OrmSession,
+    spotify_id: str,
+    title: str,
+    artist: str,
+    isrc: str | None,
+    candidates: Sequence[dict[str, Any]],
+    target_service: str = "tidal",
 ) -> None:
-    db.query(PendingTrackResolution).filter(PendingTrackResolution.spotify_id == spotify_id).delete()
+    db.query(PendingTrackResolution).filter(
+        PendingTrackResolution.spotify_id == spotify_id, PendingTrackResolution.target_service == target_service
+    ).delete()
     db.add(
         PendingTrackResolution(
             spotify_id=spotify_id,
             spotify_title=title,
             spotify_artist=artist,
+            target_service=target_service,
             isrc=isrc,
             candidates_json=json.dumps(candidates),
         )
@@ -475,19 +692,33 @@ def upsert_playlist_map(
     spotify_name: str,
     tidal_id: str | None,
     tidal_name: str | None,
+    target_service: str = "tidal",
 ) -> None:
-    m = db.get(PlaylistMap, spotify_id)
+    """Upsert playlist mapping. For backwards compat, tidal_* params are kept."""
+    m = (
+        db.query(PlaylistMap)
+        .filter(PlaylistMap.spotify_id == spotify_id, PlaylistMap.target_service == target_service)
+        .first()
+    )
     if not m:
-        m = PlaylistMap(spotify_id=spotify_id, spotify_name=spotify_name)
+        m = PlaylistMap(spotify_id=spotify_id, spotify_name=spotify_name, target_service=target_service)
         db.add(m)
+    # Store in legacy TIDAL columns
     m.tidal_id = tidal_id
     m.tidal_name = tidal_name
-    m.last_synced_at = datetime.utcnow() if tidal_id else None
+    # Also store in generic target_ columns
+    m.target_id = tidal_id if target_service == "tidal" else m.target_id
+    m.target_name = tidal_name if target_service == "tidal" else m.target_name
+    m.last_synced_at = datetime.utcnow() if (tidal_id or m.target_id) else None
     db.commit()
 
 
-def get_playlist_map(db: OrmSession, spotify_id: str) -> dict[str, Any] | None:
-    m = db.get(PlaylistMap, spotify_id)
+def get_playlist_map(db: OrmSession, spotify_id: str, target_service: str = "tidal") -> dict[str, Any] | None:
+    m = (
+        db.query(PlaylistMap)
+        .filter(PlaylistMap.spotify_id == spotify_id, PlaylistMap.target_service == target_service)
+        .first()
+    )
     if not m:
         return None
     return {

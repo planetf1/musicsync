@@ -69,6 +69,9 @@ from .tidal_client import (
 app = FastAPI(title="MusicSync")
 init_db()
 
+# Configuration: TIDAL can be disabled via environment variable
+TIDAL_ENABLED = os.getenv("TIDAL_ENABLED", "true").lower() in ("true", "1", "yes")
+
 templates = Jinja2Templates(directory="app/templates")
 app.mount("/static", StaticFiles(directory="app/static"), name="static")
 
@@ -202,10 +205,11 @@ async def index(request: Request):
         spotify_ok = False
 
     tidal_ok = False
-    try:
-        tidal_ok = tidal_logged_in()
-    except Exception:
-        tidal_ok = False
+    if TIDAL_ENABLED:
+        try:
+            tidal_ok = tidal_logged_in()
+        except Exception:
+            tidal_ok = False
 
     return templates.TemplateResponse(
         "index.html",
@@ -213,6 +217,7 @@ async def index(request: Request):
             "request": request,
             "spotify_ok": spotify_ok,
             "tidal_ok": tidal_ok,
+            "tidal_enabled": TIDAL_ENABLED,
         },
     )
 
@@ -235,6 +240,8 @@ async def spotify_callback(code: str | None = None, error: str | None = None):
 
 @app.get("/auth/tidal/start")
 async def tidal_start():
+    if not TIDAL_ENABLED:
+        raise HTTPException(status_code=400, detail="TIDAL integration is disabled")
     data = get_login_url_and_worker()
     # Return the details needed for UI
     return JSONResponse(
@@ -250,6 +257,8 @@ async def tidal_start():
 
 @app.get("/auth/tidal/status")
 async def tidal_status():
+    if not TIDAL_ENABLED:
+        raise HTTPException(status_code=400, detail="TIDAL integration is disabled")
     state = tidal_login_state()
     return JSONResponse(
         {
@@ -521,6 +530,12 @@ def _run_sync_artists_job(job_id: str, limit: int = 0) -> None:
             _job_set(job_id, state="error", error=str(e))
             _log.exception(f"[job {job_id}] Spotify not authorized")
             return
+
+        if not TIDAL_ENABLED:
+            _job_set(job_id, state="error", error="TIDAL integration is disabled")
+            _log.error(f"[job {job_id}] TIDAL integration is disabled")
+            return
+
         try:
             sess = get_tidal_session()
             # Log some session diagnostics
@@ -793,6 +808,11 @@ def _run_sync_tracks_job(job_id: str, limit: int = 0) -> None:
         except Exception as e:
             _job_set(job_id, state="error", error=str(e))
             return
+
+        if not TIDAL_ENABLED:
+            _job_set(job_id, state="error", error="TIDAL integration is disabled")
+            return
+
         try:
             sess = get_tidal_session()
         except Exception as e:
@@ -984,6 +1004,11 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
         except Exception as e:
             _job_set(job_id, state="error", error=str(e))
             return
+
+        if not TIDAL_ENABLED:
+            _job_set(job_id, state="error", error="TIDAL integration is disabled")
+            return
+
         try:
             sess = get_tidal_session()
         except Exception as e:

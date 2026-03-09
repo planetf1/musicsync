@@ -10,6 +10,7 @@
         <a class="btn" href="/auth/spotify/login">Connect Spotify</a>
       {% endif %}
     </li>
+    {% if tidal_enabled %}
     <li>
       TIDAL:
       <strong class="{{ 'status-connected' if tidal_ok else 'status-disconnected' }}">{{ 'Connected' if tidal_ok else 'Not Connected' }}</strong>
@@ -65,8 +66,10 @@
         </script>
       {% endif %}
     </li>
+    {% endif %}
   </ul>
   <div class="actions">
+    {% if tidal_enabled %}
     <button id="btn-sync-artists" class="btn" onclick="startArtistSync()" {% if not (spotify_ok and tidal_ok) %}disabled{% endif %}>Sync Followed Artists</button>
     <div id="artist-sync-progress" style="margin-top:8px"></div>
     <script>
@@ -129,6 +132,7 @@
   <div style="margin-top:6px">
     <label><input type="checkbox" id="chk-limit-25" /> Debug: limit to first 25 artists</label>
   </div>
+  {% endif %}
 
   <hr />
   <section>
@@ -161,6 +165,7 @@
     </form>
   </section>
   <hr />
+  {% if tidal_enabled %}
   <div class="actions">
     <button id="btn-sync-playlists" class="btn" onclick="startPlaylistSync()" {% if not (spotify_ok and tidal_ok) %}disabled{% endif %}>Sync Playlists (Spotify → TIDAL)</button>
     <a class="btn secondary" href="/library/playlists" style="margin-left:8px;">View Playlists</a>
@@ -221,7 +226,9 @@
   <div style="margin-top:6px">
     <label><input type="checkbox" id="chk-limit-playlists-25" /> Debug: limit to first 25 playlists</label>
   </div>
+  {% endif %}
   <hr />
+  {% if tidal_enabled %}
   <div class="actions">
     <button id="btn-sync-tracks" class="btn" onclick="startTrackSync()" {% if not (spotify_ok and tidal_ok) %}disabled{% endif %}>Sync Liked Tracks (Spotify → TIDAL)</button>
     <div id="track-sync-progress" style="margin-top:8px"></div>
@@ -281,6 +288,7 @@
   <div style="margin-top:6px">
     <label><input type="checkbox" id="chk-limit-tracks-25" /> Debug: limit to first 25 tracks</label>
   </div>
+  {% endif %}
   <hr />
   <section>
     <h3>Library</h3>
