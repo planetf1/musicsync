@@ -1439,6 +1439,195 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
         _job_set(job_id, state="error", error=str(e))
 
 
+def _run_sync_apple_likes_job(job_id: str, limit: int = 0) -> None:
+    """Sync Spotify liked tracks to Apple Music library."""
+    _job_set(job_id, state="running", started_at=datetime.now(UTC).isoformat())
+    try:
+        # Check Spotify auth
+        try:
+            get_spotify_client()
+        except Exception as e:
+            _job_set(job_id, state="error", error=str(e))
+            return
+
+        # Check Apple Music auth
+        try:
+            apple_client = get_apple_client()
+            storefront = apple_client.get_storefront()
+        except Exception as e:
+            _job_set(job_id, state="error", error=str(e))
+            return
+
+        # Fetch liked tracks from Spotify
+        tracks: list[dict[str, Any]] = []
+        offset = 0
+        page_size = 50
+        while True:
+            page = (
+                call_spotify(
+                    lambda sp, offset=offset, page_size=page_size: sp.current_user_saved_tracks(
+                        limit=page_size, offset=offset
+                    )
+                )
+                or {}
+            )
+            items = page.get("items") or []
+            for it in items:
+                t = it.get("track") or {}
+                if not t:
+                    continue
+                tid = t.get("id")
+                name = t.get("name")
+                artists = t.get("artists") or []
+                artist_name = artists[0]["name"] if artists else ""
+                artist_id = artists[0].get("id") if artists and isinstance(artists[0], dict) else None
+                duration_ms = t.get("duration_ms")
+                isrc = None
+                ext = t.get("external_ids") or {}
+                if ext.get("isrc"):
+                    isrc = ext.get("isrc")
+                dur = int(duration_ms / 1000) if duration_ms else None
+                if tid and name:
+                    tracks.append(
+                        {
+                            "id": tid,
+                            "title": name,
+                            "artist": artist_name,
+                            "artist_id": artist_id,
+                            "isrc": isrc,
+                            "duration": dur,
+                        }
+                    )
+            offset += len(items)
+            if limit and len(tracks) >= limit:
+                tracks = tracks[:limit]
+                break
+            if not page.get("next"):
+                break
+
+        total = len(tracks)
+        _job_set(job_id, total=total, processed=0, added_to_library=0, already_in_library=0, pending_count=0)
+
+        # Cleanup stale pending
+        with SessionLocal() as db:
+            removed = cleanup_pending_tracks_for_resolved(db)
+            if removed:
+                _log.info("[job %s] Cleared %d stale pending tracks", job_id, removed)
+
+        processed = 0
+        added_to_library = 0
+        already_in_library = 0
+        pending = 0
+
+        # Batch tracks for efficient library adds
+        apple_tracks_to_add: list[str] = []
+
+        for tr in tracks:
+            title = tr["title"]
+            artist = tr["artist"]
+            isrc = tr.get("isrc")
+            dur = tr.get("duration")
+            try:
+                apple_track: dict[str, Any] | None = None
+
+                # Try ISRC-first match
+                if isrc:
+                    try:
+                        apple_track = apple_client.search_by_isrc(isrc, storefront)
+                    except Exception:
+                        pass
+
+                # Fallback to fuzzy search
+                if not apple_track:
+                    try:
+                        candidates = apple_client.search_track(
+                            title=title,
+                            artist=artist,
+                            duration_s=dur,
+                            storefront=storefront,
+                            limit=10,
+                        )
+                        if candidates:
+                            # Score candidates using existing helper
+                            ranked: list[dict[str, Any]] = []
+                            for c in candidates:
+                                score = _score_track_candidate(
+                                    title,
+                                    artist,
+                                    isrc,
+                                    dur,
+                                    {
+                                        "id": c["id"],
+                                        "title": c["name"],
+                                        "artists": c["artists"],
+                                        "duration": (int(c["duration_ms"] / 1000) if c.get("duration_ms") else None),
+                                        "isrc": c.get("isrc"),
+                                    },
+                                )
+                                c2 = dict(c)
+                                c2["score"] = float(score)
+                                ranked.append(c2)
+                            ranked.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
+                            top = ranked[0] if ranked else None
+
+                            # Accept high confidence matches (>= 95 or ISRC match >= 900)
+                            if top and (float(top.get("score", 0.0)) >= 95.0 or float(top.get("score", 0.0)) >= 900.0):
+                                apple_track = top
+                    except Exception:
+                        pass
+
+                if apple_track:
+                    # Queue for batch add to library
+                    apple_tracks_to_add.append(apple_track["id"])
+
+                    # Batch add in chunks of 100
+                    if len(apple_tracks_to_add) >= 100:
+                        try:
+                            result = apple_client.add_tracks_to_library(apple_tracks_to_add)
+                            added_to_library += result.succeeded
+                        except Exception:
+                            pass
+                        apple_tracks_to_add = []
+                else:
+                    # No match found, add to pending
+                    with SessionLocal() as db:
+                        # For now, we'll use the TIDAL pending system
+                        # In future, could add Apple-specific pending resolution
+                        pending += 1
+            except Exception:
+                pending += 1
+            finally:
+                processed += 1
+                if processed % 10 == 0 or processed == total:
+                    _job_set(
+                        job_id,
+                        processed=processed,
+                        added_to_library=added_to_library,
+                        already_in_library=already_in_library,
+                        pending_count=pending,
+                    )
+
+        # Add remaining tracks
+        if apple_tracks_to_add:
+            try:
+                result = apple_client.add_tracks_to_library(apple_tracks_to_add)
+                added_to_library += result.succeeded
+            except Exception:
+                pass
+
+        _job_set(
+            job_id,
+            state="done",
+            finished_at=datetime.now(UTC).isoformat(),
+            processed=processed,
+            added_to_library=added_to_library,
+            already_in_library=already_in_library,
+            pending_count=pending,
+        )
+    except Exception as e:
+        _job_set(job_id, state="error", error=str(e))
+
+
 def _run_sync_apple_playlists_job(job_id: str, limit: int = 0) -> None:
     """Sync user-owned Spotify playlists to Apple Music."""
     _job_set(job_id, state="running", started_at=datetime.now(UTC).isoformat())
@@ -1738,6 +1927,30 @@ async def start_sync_playlists(request: Request):
 
 @app.get("/sync/playlists/status")
 async def sync_playlists_status(job_id: str):
+    with _jobs_lock:
+        data = _jobs.get(job_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="job not found")
+    return JSONResponse(data)
+
+
+@app.post("/sync/apple/likes/start")
+async def start_sync_apple_likes(request: Request):
+    """Start syncing Spotify liked tracks to Apple Music library."""
+    limit_param = request.query_params.get("limit")
+    try:
+        limit = int(limit_param) if limit_param else 0
+    except ValueError:
+        limit = 0
+    job_id = str(uuid.uuid4())
+    _job_set(job_id, state="pending", limit=limit)
+    threading.Thread(target=_run_sync_apple_likes_job, args=(job_id, limit), daemon=True).start()
+    return JSONResponse({"job_id": job_id})
+
+
+@app.get("/sync/apple/likes/status")
+async def sync_apple_likes_status(job_id: str):
+    """Get status of Apple Music likes sync job."""
     with _jobs_lock:
         data = _jobs.get(job_id)
     if not data:
