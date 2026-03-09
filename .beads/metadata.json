@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "server",
+  "dolt_database": "musicsync",
+  "project_id": "f83c0803-2a94-4592-b6b1-a71c211c102c"
+}

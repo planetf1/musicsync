@@ -39,9 +39,13 @@ logs/
 
 # Database / local state
 *.db
+*.db.old
 *.sqlite
 *.sqlite3
 musicsync.db
 
 # Node/Frontend (if added later)
 node_modules/
+
+# Dolt database files (added by bd init)
+.dolt/
