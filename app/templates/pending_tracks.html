@@ -1,6 +1,10 @@
 {% extends "base.html" %}
 {% block content %}
 <h2>Pending Track Matches</h2>
+<div style="background:#f0f8ff; border-left:4px solid #4a90e2; padding:12px; margin-bottom:16px; border-radius:4px;">
+  <strong>ℹ️ Note:</strong> Resolving Apple Music matches requires an active Apple Music connection.
+  If resolution fails, ensure you've connected via <a href="/apple/connect" style="color:#4a90e2;">Apple Music Connect</a>.
+</div>
 {% if not items %}
 <p>No pending track matches. Great job!</p>
 {% else %}

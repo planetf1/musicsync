@@ -209,6 +209,48 @@ uv run --with uvicorn uvicorn app.main:app \
 
 If you need a deep dive into playlist specifics, see [docs/PLAYLISTS.md](docs/PLAYLISTS.md).
 
+## Troubleshooting
+
+### Apple Music Resolution Issues
+
+**Symptom:** Manual resolution for Apple Music tracks fails or gives errors.
+
+**Common Causes:**
+1. **Missing or Expired Music User Token** - Manual resolution requires a valid Apple Music "Music User Token" to be present in the database.
+   - **Fix:** Ensure the user has connected Apple Music via the UI (`/apple/connect`).
+   - **Check:** Query the `tokens` table for service='apple' and verify `user_token` is present and not expired.
+   - **Note:** The token is obtained via MusicKit JS browser popup and has a limited lifetime.
+
+2. **Storefront Mismatch** - Apple Music matching is storefront/region-aware.
+   - **Symptom:** Inconsistent search results or "track not available" errors.
+   - **Fix:** Verify the `APPLE_MUSIC_STOREFRONT` environment variable (if set) matches the user's account region.
+   - **Check:** Call `/apple/me` endpoint to see detected storefront from user token.
+   - **Note:** Tracks may not be available in all regions due to licensing restrictions.
+
+### TIDAL Session Issues
+
+**Symptom:** TIDAL operations fail with "session not found" or authentication errors.
+
+**Common Causes:**
+1. **Expired Session** - TIDAL sessions can expire and need re-authentication.
+   - **Fix:** User must re-authenticate via device flow at `/tidal/login`.
+   - **Check:** Session blob is stored in `tokens` table with service='tidal'.
+
+### Database Queries for Debugging
+
+```sql
+-- Check active tokens
+SELECT service, updated_at FROM tokens;
+
+-- Check pending resolution counts by service
+SELECT target_service, COUNT(*) FROM pending_track_resolution GROUP BY target_service;
+
+-- Check track mapping coverage
+SELECT target_service, COUNT(*) as mapped,
+       SUM(CASE WHEN resolved=1 THEN 1 ELSE 0 END) as resolved
+FROM track_map GROUP BY target_service;
+```
+
 ## Landing the Plane (Session Completion)
 
 **When ending a work session**, you MUST complete ALL steps below. Work is NOT complete until `git push` succeeds.
