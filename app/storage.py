@@ -1169,31 +1169,66 @@ def list_synced_playlists(
 ) -> tuple[list[dict[str, Any]], int]:
     from sqlalchemy import func, or_
 
-    q = db.query(PlaylistMap).filter(PlaylistMap.tidal_id.isnot(None))
+    # Build subquery to get all playlist mappings grouped by spotify_id
+    q = db.query(PlaylistMap)
     if search:
         s = f"%{search.lower()}%"
         q = q.filter(
             or_(
                 func.lower(PlaylistMap.spotify_name).like(s),
                 func.lower(PlaylistMap.tidal_name).like(s),
+                func.lower(PlaylistMap.target_name).like(s),
                 func.lower(PlaylistMap.spotify_id).like(s),
                 func.lower(PlaylistMap.tidal_id).like(s),
+                func.lower(PlaylistMap.target_id).like(s),
             )
         )
 
-    total = q.count()
+    # Get all rows first, then group by spotify_id
+    all_rows = q.all()
 
-    sort_map = {
-        "last_synced_at": PlaylistMap.last_synced_at,
-        "spotify_name": PlaylistMap.spotify_name,
-        "tidal_name": PlaylistMap.tidal_name,
+    # Group by spotify_id
+    grouped: dict[str, dict[str, Any]] = {}
+    for r in all_rows:
+        if r.spotify_id not in grouped:
+            grouped[r.spotify_id] = {
+                "spotify_id": r.spotify_id,
+                "spotify_name": r.spotify_name,
+                "tidal_id": None,
+                "tidal_name": None,
+                "apple_id": None,
+                "apple_name": None,
+                "last_synced_at": None,
+            }
+
+        item = grouped[r.spotify_id]
+        # Update last_synced_at to latest
+        if r.last_synced_at:
+            if not item["last_synced_at"] or r.last_synced_at > item["last_synced_at"]:
+                item["last_synced_at"] = r.last_synced_at
+
+        # Populate service-specific fields
+        if r.target_service == "tidal":
+            item["tidal_id"] = r.tidal_id or r.target_id
+            item["tidal_name"] = r.tidal_name or r.target_name
+        elif r.target_service == "apple":
+            item["apple_id"] = r.target_id
+            item["apple_name"] = r.target_name
+
+    # Convert to list
+    items = list(grouped.values())
+    total = len(items)
+
+    # Sort
+    sort_key_map = {
+        "last_synced_at": lambda x: x.get("last_synced_at") or datetime.min,
+        "spotify_name": lambda x: (x.get("spotify_name") or "").lower(),
+        "tidal_name": lambda x: (x.get("tidal_name") or "").lower(),
     }
-    col = sort_map.get(sort, PlaylistMap.last_synced_at)
-    if order.lower() == "asc":
-        q = q.order_by(col.asc().nullslast())
-    else:
-        q = q.order_by(col.desc().nullslast())
+    sort_key = sort_key_map.get(sort, sort_key_map["last_synced_at"])
+    items.sort(key=sort_key, reverse=(order.lower() == "desc"))
 
+    # Paginate
     if page_size == 0:
         pass
     else:
@@ -1202,18 +1237,11 @@ def list_synced_playlists(
         if page_size < 1:
             page_size = 25
         offset = (page - 1) * page_size
-        q = q.offset(offset).limit(page_size)
+        items = items[offset : offset + page_size]
 
-    rows = q.all()
-    out: list[dict[str, Any]] = []
-    for r in rows:
-        out.append(
-            {
-                "spotify_id": r.spotify_id,
-                "spotify_name": r.spotify_name,
-                "tidal_id": r.tidal_id,
-                "tidal_name": r.tidal_name,
-                "last_synced_at": r.last_synced_at.isoformat() if r.last_synced_at else None,
-            }
-        )
-    return out, total
+    # Format last_synced_at as ISO strings
+    for item in items:
+        if item.get("last_synced_at"):
+            item["last_synced_at"] = item["last_synced_at"].isoformat()
+
+    return items, total

@@ -299,6 +299,138 @@
   </div>
   {% endif %}
   <hr />
+  {% if apple_enabled %}
+  <div class="actions">
+    <button id="btn-sync-apple-playlists" class="btn" onclick="startApplePlaylistSync()" {% if not (spotify_ok and apple_ok) %}disabled{% endif %}>Sync Playlists (Spotify → Apple Music)</button>
+    <a class="btn secondary" href="/library/playlists" style="margin-left:8px;">View Playlists</a>
+    <div id="apple-playlist-sync-progress" style="margin-top:8px"></div>
+    <script>
+      let applePlaylistSyncTimer;
+      async function startApplePlaylistSync(){
+        const btn = document.getElementById('btn-sync-apple-playlists');
+        const div = document.getElementById('apple-playlist-sync-progress');
+        btn.disabled = true;
+        div.textContent = 'Starting Apple Music playlist sync…';
+        try{
+          const debugLimit = document.getElementById('chk-limit-apple-playlists-25')?.checked ? 25 : 0;
+          const url = debugLimit ? ('/sync/apple/playlists/start?limit=' + debugLimit) : '/sync/apple/playlists/start';
+          const resp = await fetch(url, {method:'POST'});
+          if(!resp.ok){ div.textContent = 'Failed to start Apple Music playlist sync.'; btn.disabled = false; return; }
+          const data = await resp.json();
+          pollApplePlaylistSync(data.job_id);
+        }catch(e){
+          div.textContent = 'Error starting Apple Music playlist sync: ' + e;
+          btn.disabled = false;
+        }
+      }
+      async function pollApplePlaylistSync(jobId){
+        if(applePlaylistSyncTimer) clearInterval(applePlaylistSyncTimer);
+        const div = document.getElementById('apple-playlist-sync-progress');
+        const render = async () => {
+          try{
+            const r = await fetch('/sync/apple/playlists/status?job_id='+encodeURIComponent(jobId));
+            if(!r.ok){ div.textContent = 'Apple Music playlist sync status unavailable'; return; }
+            const s = await r.json();
+            if(s.state === 'error'){
+              div.innerHTML = `<span class="status-disconnected">Error: ${s.error||'unknown'}</span>`;
+              clearInterval(applePlaylistSyncTimer);
+              document.getElementById('btn-sync-apple-playlists').disabled = false;
+              return;
+            }
+            const total = s.total ?? 0;
+            const processed = s.processed ?? 0;
+            const created = s.created ?? 0;
+            const updated = s.updated ?? 0;
+            if(s.state === 'done'){
+              div.innerHTML = `<span class="status-connected">Done.</span> Playlists: ${total}, created: ${created}, updated: ${updated}.`;
+              clearInterval(applePlaylistSyncTimer);
+              document.getElementById('btn-sync-apple-playlists').disabled = false;
+              return;
+            }
+            div.textContent = `Syncing Apple Music playlists… ${processed}/${total} (created: ${created}, touched: ${updated})`;
+          }catch(e){
+            div.textContent = 'Error reading status: ' + e;
+          }
+        };
+        await render();
+        applePlaylistSyncTimer = setInterval(render, 2000);
+      }
+    </script>
+  </div>
+  <div style="margin-top:6px">
+    <label><input type="checkbox" id="chk-limit-apple-playlists-25" /> Debug: limit to first 25 playlists</label>
+  </div>
+  {% endif %}
+  <hr />
+  {% if apple_enabled %}
+  <div class="actions">
+    <button id="btn-sync-apple-likes" class="btn" onclick="startAppleLikesSync()" {% if not (spotify_ok and apple_ok) %}disabled{% endif %}>Sync Liked Tracks (Spotify → Apple Music Library)</button>
+    <div id="apple-likes-sync-progress" style="margin-top:8px"></div>
+    <script>
+      let appleLikesSyncTimer;
+      async function startAppleLikesSync(){
+        const btn = document.getElementById('btn-sync-apple-likes');
+        const div = document.getElementById('apple-likes-sync-progress');
+        btn.disabled = true;
+        div.textContent = 'Starting Apple Music library sync…';
+        try{
+          const debugLimit = document.getElementById('chk-limit-apple-likes-25')?.checked ? 25 : 0;
+          const url = debugLimit ? ('/sync/apple/likes/start?limit=' + debugLimit) : '/sync/apple/likes/start';
+          const resp = await fetch(url, {method:'POST'});
+          if(!resp.ok){ div.textContent = 'Failed to start Apple Music library sync.'; btn.disabled = false; return; }
+          const data = await resp.json();
+          pollAppleLikesSync(data.job_id);
+        }catch(e){
+          div.textContent = 'Error starting Apple Music library sync: ' + e;
+          btn.disabled = false;
+        }
+      }
+      async function pollAppleLikesSync(jobId){
+        if(appleLikesSyncTimer) clearInterval(appleLikesSyncTimer);
+        const div = document.getElementById('apple-likes-sync-progress');
+        const render = async () => {
+          try{
+            const r = await fetch('/sync/apple/likes/status?job_id='+encodeURIComponent(jobId));
+            if(!r.ok){ div.textContent = 'Apple Music library sync status unavailable'; return; }
+            const s = await r.json();
+            if(s.state === 'error'){
+              div.innerHTML = `<span class="status-disconnected">Error: ${s.error||'unknown'}</span>`;
+              clearInterval(appleLikesSyncTimer);
+              document.getElementById('btn-sync-apple-likes').disabled = false;
+              return;
+            }
+            const total = s.total ?? 0;
+            const processed = s.processed ?? 0;
+            const added = s.added_to_library ?? 0;
+            const pend = s.pending_count ?? 0;
+            if(s.state === 'done'){
+              div.innerHTML = `<span class="status-connected">Done.</span> Tracks: ${total}, added to library: ${added}, pending: ${pend}.`;
+              clearInterval(appleLikesSyncTimer);
+              document.getElementById('btn-sync-apple-likes').disabled = false;
+              return;
+            }
+            div.textContent = `Syncing Apple Music library… ${processed}/${total} (added: ${added}, pending: ${pend})`;
+          }catch(e){
+            div.textContent = 'Error reading status: ' + e;
+          }
+        };
+        await render();
+        appleLikesSyncTimer = setInterval(render, 2000);
+      }
+    </script>
+  </div>
+  <div style="margin-top:6px">
+    <label><input type="checkbox" id="chk-limit-apple-likes-25" /> Debug: limit to first 25 tracks</label>
+  </div>
+  <div class="note" style="margin-top:12px; padding:10px; background:#f0f0f0; border-left: 4px solid #999;">
+    <strong>Note:</strong> Apple Music limitations:
+    <ul style="margin:8px 0 0 20px; line-height:1.6;">
+      <li>Liked tracks are added to your Apple Music library (no separate "like" API exists)</li>
+      <li>Artist following is not supported by the Apple Music API (artist sync unavailable)</li>
+    </ul>
+  </div>
+  {% endif %}
+  <hr />
   <section>
     <h3>Library</h3>
     <ul>

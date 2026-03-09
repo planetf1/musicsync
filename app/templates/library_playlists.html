@@ -34,7 +34,8 @@
           <th class="num"><a href="/library/playlists?sort=tracks&order={{ next_order if sort=='tracks' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}">Tracks{% if sort=='tracks' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th class="num"><a href="/library/playlists?sort=duration&order={{ next_order if sort=='duration' else 'desc' }}&q={{ q }}&page_size={{ page_size_param }}">Duration{% if sort=='duration' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
           <th>Spotify</th>
-          <th class="hide-sm"><a href="/library/playlists?sort=tidal_name&order={{ next_order if sort=='tidal_name' else 'asc' }}&q={{ q }}&page_size={{ page_size_param }}">TIDAL{% if sort=='tidal_name' %} {% if order=='asc' %}▲{% else %}▼{% endif %}{% endif %}</a></th>
+          <th class="hide-sm">TIDAL</th>
+          <th class="hide-sm">Apple Music</th>
         </tr>
       </thead>
       <tbody>
@@ -56,9 +57,16 @@
               {% endif %}
             </td>
             <td><a href="https://open.spotify.com/playlist/{{ it.spotify_id }}" target="_blank" rel="noopener">open</a></td>
-            <td>
+            <td class="hide-sm">
               {% if it.tidal_id %}
                 <a href="https://tidal.com/browse/playlist/{{ it.tidal_id }}" target="_blank" rel="noopener">open</a>
+              {% else %}
+                —
+              {% endif %}
+            </td>
+            <td class="hide-sm">
+              {% if it.apple_id %}
+                <span title="Apple Music ID: {{ it.apple_id }}">✓</span>
               {% else %}
                 —
               {% endif %}

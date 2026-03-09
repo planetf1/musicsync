@@ -7,6 +7,9 @@
     {% if playlist.tidal_id %}
       <span style="margin-left:12px;">TIDAL: <a href="https://tidal.com/browse/playlist/{{ playlist.tidal_id }}" target="_blank" rel="noopener">open</a></span>
     {% endif %}
+    {% if playlist.apple_id %}
+      <span style="margin-left:12px;">Apple Music: <span title="Apple Music ID: {{ playlist.apple_id }}">✓</span></span>
+    {% endif %}
   </div>
   {% if stats %}
     {% set total = stats.total_seconds or 0 %}

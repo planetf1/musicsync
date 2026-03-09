@@ -2535,9 +2535,17 @@ async def library_playlist_detail(spotify_id: str, request: Request):
             page_size = 25
 
     with SessionLocal() as db:
-        pl = get_playlist_map(db, spotify_id)
+        pl_tidal = get_playlist_map(db, spotify_id, target_service="tidal")
+        pl_apple = get_playlist_map(db, spotify_id, target_service="apple")
+        # Use whichever exists, prefer TIDAL for backwards compatibility
+        pl = pl_tidal or pl_apple
         if not pl:
             raise HTTPException(status_code=404, detail="Playlist not found")
+        # Merge both service mappings into one dict for template
+        playlist_info = dict(pl)
+        if pl_apple:
+            playlist_info["apple_id"] = pl_apple.get("target_id")
+            playlist_info["apple_name"] = pl_apple.get("target_name")
         items, total = list_playlist_tracks(
             db,
             spotify_id,
@@ -2557,7 +2565,7 @@ async def library_playlist_detail(spotify_id: str, request: Request):
         "library_playlist_detail.html",
         {
             "request": request,
-            "playlist": pl,
+            "playlist": playlist_info,
             "items": items,
             "count": len(items),
             "total": total,
