@@ -693,6 +693,40 @@ class TestLibraryOperations:
     """Test library track additions."""
 
     @patch("app.apple_client.AppleMusicClient._request")
+    def test_list_library_song_ids_returns_set(self, mock_request):
+        mock_request.return_value = {
+            "data": [
+                {"id": "song1", "type": "library-songs"},
+                {"id": "song2", "type": "library-songs"},
+            ],
+            "next": None,
+        }
+
+        client = AppleMusicClient()
+        result = client.list_library_song_ids()
+
+        assert result == {"song1", "song2"}
+
+    @patch("app.apple_client.AppleMusicClient._request")
+    def test_list_library_song_ids_handles_pagination(self, mock_request):
+        mock_request.side_effect = [
+            {
+                "data": [{"id": "song1", "type": "library-songs"}],
+                "next": f"{APPLE_BASE_URL}/me/library/songs?offset=1",
+            },
+            {
+                "data": [{"id": "song2", "type": "library-songs"}],
+                "next": None,
+            },
+        ]
+
+        client = AppleMusicClient()
+        result = client.list_library_song_ids()
+
+        assert result == {"song1", "song2"}
+        assert mock_request.call_count == 2
+
+    @patch("app.apple_client.AppleMusicClient._request")
     def test_add_tracks_to_library_chunks_requests(self, mock_request):
         mock_request.return_value = {}
         track_ids = [f"track_{i}" for i in range(250)]

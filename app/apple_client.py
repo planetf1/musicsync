@@ -283,6 +283,25 @@ class AppleMusicClient:
 
         return playlists
 
+    def list_library_song_ids(self) -> set[str]:
+        """Return all song IDs currently present in the user's Apple Music library."""
+        song_ids: set[str] = set()
+        next_url: str | None = "/me/library/songs"
+
+        while next_url:
+            payload = self._request("GET", next_url, params={"limit": 100}, require_user_token=True)
+            for item in payload.get("data") or []:
+                song_id = item.get("id")
+                if song_id:
+                    song_ids.add(str(song_id))
+
+            next_raw = payload.get("next")
+            next_url = str(next_raw) if next_raw else None
+            if next_url and next_url.startswith("https://api.music.apple.com/v1"):
+                next_url = next_url.replace("https://api.music.apple.com/v1", "", 1)
+
+        return song_ids
+
     def ensure_playlist(self, name: str, description: str | None = None) -> dict[str, Any]:
         target_name = (name or "").strip()
         if not target_name:

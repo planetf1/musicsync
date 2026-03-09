@@ -9,11 +9,12 @@ Last updated: 2026-03-09
 Apple Music integration is now live in MusicSync. Key features:
 
 - **Playlists**: Sync user-owned Spotify playlists to Apple Music (create/update with ordered track additions).
+- **Followed artists**: Create/update a fallback playlist (e.g., "Followed Artists from Spotify") containing tracks representing the user's followed artists.
 - **Liked tracks**: Add Spotify liked tracks to Apple Music library.
 - **Matching**: ISRC-first with fuzzy fallback (title/artist/duration scoring).
 - **Authentication**: Two-token approach (Developer Token JWT + Music User Token via MusicKit JS).
 - **Storage**: Multi-service support in `playlist_map` and `track_map` tables with composite keys.
-- **UI**: Connect Apple Music button, playlist sync, and likes sync with progress polling.
+- **UI**: Connect Apple Music button, and sync buttons for playlists, likes, and followed artists with progress polling.
 
 **Limitations** (by Apple Music API design):
 - No programmatic artist following/favoriting.
@@ -259,10 +260,9 @@ Evidence from Apple documentation:
 
 Decision for MusicSync:
 
-- Keep "Followed artists" sync as **Spotify → TIDAL only**.
+- Keep "Followed artists" sync as **Spotify → TIDAL only** for native favoriting.
 - For Apple Music, continue syncing liked tracks and playlists.
-- Optional future fallback: generate an Apple playlist (for example
-  "Followed Artists from Spotify") populated with representative tracks.
+- **Implemented fallback**: Generates an Apple playlist (default "Followed Artists from Spotify") populated with top tracks from the user's followed artists.
 
 ---
 
@@ -303,7 +303,7 @@ Total: ~1.5–2.5 weeks elapsed including setup and review.
 
 **Files Created/Modified:**
 - `app/apple_client.py`: Complete Apple Music client with JWT generation (ES256), storefront detection, ISRC + fuzzy search, playlist operations, and library additions.
-- `app/main.py`: Background jobs for Apple playlist sync and liked tracks sync with progress tracking (`_run_sync_apple_playlists_job`, `_run_sync_apple_likes_job`). Endpoints: `/apple/connect`, `/apple/token`, `/sync/apple/playlists/start|status`, `/sync/apple/likes/start|status`.
+- `app/main.py`: Background jobs for Apple playlist sync, liked tracks sync, and followed artists fallback playlist sync with progress tracking. Endpoints: `/apple/connect`, `/apple/token`, and `/sync/apple/...` start and status variants.
 - `app/storage.py`: Extended `tokens` table for Apple tokens; generalized `playlist_map` and `track_map` with composite keys `(spotify_id, service)` to support multi-service mappings. Added `list_synced_playlists()` grouping by `spotify_id` to return TIDAL and Apple mappings together.
 - `app/templates/`: Updated `index.html` (Apple connect button + sync UI with JavaScript polling), `library_playlists.html` (Apple column), `library_playlist_detail.html` (Apple service indicator), `apple_connect.html` (MusicKit JS integration).
 

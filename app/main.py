@@ -1520,6 +1520,13 @@ def _run_sync_apple_likes_job(job_id: str, limit: int = 0) -> None:
         already_in_library = 0
         pending = 0
 
+        # Best-effort preload of existing Apple library IDs for accurate counters
+        existing_library_ids: set[str] = set()
+        try:
+            existing_library_ids = apple_client.list_library_song_ids()
+        except Exception:
+            existing_library_ids = set()
+
         # Batch tracks for efficient library adds
         apple_tracks_to_add: list[str] = []
 
@@ -1586,7 +1593,7 @@ def _run_sync_apple_likes_job(job_id: str, limit: int = 0) -> None:
                     apple_duration_ms = apple_track.get("duration_ms")
                     apple_duration = int(apple_duration_ms / 1000) if apple_duration_ms else None
                     confidence = float(apple_track.get("score", 0.0))
-                    
+
                     # Persist track mapping
                     with SessionLocal() as db:
                         upsert_track_map(
@@ -1619,9 +1626,14 @@ def _run_sync_apple_likes_job(job_id: str, limit: int = 0) -> None:
                             "auto",
                             target_service="apple",
                         )
-                    
-                    # Queue for batch add to library
-                    apple_tracks_to_add.append(apple_id)
+
+                    # Queue for batch add to library only if not already present
+                    if apple_id in existing_library_ids:
+                        already_in_library += 1
+                    else:
+                        apple_tracks_to_add.append(apple_id)
+                        # Avoid duplicate add attempts during the same run
+                        existing_library_ids.add(apple_id)
 
                     # Batch add in chunks of 100
                     if len(apple_tracks_to_add) >= 100:
@@ -1643,11 +1655,9 @@ def _run_sync_apple_likes_job(job_id: str, limit: int = 0) -> None:
                             confidence_score = float(apple_track.get("score", 0.0))
                         else:
                             # No candidates at all
-                            add_pending_track_resolution(
-                                db, tr["id"], title, artist, isrc, [], target_service="apple"
-                            )
+                            add_pending_track_resolution(db, tr["id"], title, artist, isrc, [], target_service="apple")
                             confidence_score = 0.0
-                        
+
                         # Store partial mapping (unresolved)
                         upsert_track_map(
                             db,
@@ -2340,12 +2350,13 @@ async def list_pending_tracks(request: Request):
 @app.post("/resolve-track/{pending_id}")
 async def resolve_track(
     pending_id: int,
-    tidal_id: str = Form(...),
-    tidal_title: str = Form(...),
-    tidal_artist: str = Form(""),
-    tidal_artist_id: str = Form(""),
+    target_service: str = Form(...),
+    target_id: str = Form(...),
+    target_title: str = Form(...),
+    target_artist: str = Form(""),
+    target_artist_id: str = Form(""),
 ):
-    sess = get_tidal_session()
+    """Resolve pending track match for TIDAL or Apple Music."""
     with SessionLocal() as db:
         items = {p["id"]: p for p in get_pending_tracks(db)}
         if pending_id not in items:
@@ -2355,35 +2366,65 @@ async def resolve_track(
         sptitle = p["spotify_title"]
         spart = p["spotify_artist"]
         isrc = p.get("isrc")
-        favs = _tidal_favorite_tracks_set(sess)
-        if tidal_id not in favs:
+
+        # Dispatch based on target service
+        if target_service == "tidal":
+            # TIDAL resolution: add to favorites
+            sess = get_tidal_session()
+            favs = _tidal_favorite_tracks_set(sess)
+            if target_id not in favs:
+                try:
+                    sess.user.favorites.add_track(int(target_id))
+                except Exception:
+                    pass
+        elif target_service == "apple":
+            # Apple Music resolution: add to library
             try:
-                sess.user.favorites.add_track(int(tidal_id))
+                apple_client = get_apple_client()
+                apple_client.add_tracks_to_library([target_id])
             except Exception:
                 pass
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported service: {target_service}")
+
         # Preserve spotify artist id if known
-        existing_map = db.get(TrackMap, spid)
+        existing_map = (
+            db.query(TrackMap).filter(TrackMap.spotify_id == spid, TrackMap.target_service == target_service).first()
+        )
         s_artist_id = getattr(existing_map, "spotify_artist_id", None) if existing_map else None
         s_dur = getattr(existing_map, "spotify_duration", None) if existing_map else None
-        t_dur = getattr(existing_map, "tidal_duration", None) if existing_map else None
-        t_artist_id = tidal_artist_id or None
+        t_dur = getattr(existing_map, "target_duration", None) if existing_map else None
+        t_artist_id = target_artist_id or None
+
         upsert_track_map(
             db,
             spid,
             sptitle,
             spart,
             s_artist_id,
-            tidal_id,
-            tidal_title,
-            tidal_artist,
+            target_id,
+            target_title,
+            target_artist,
             t_artist_id,
             isrc,
             s_dur,
             t_dur,
             0.0,
             True,
+            target_service=target_service,
         )
-        add_track_sync_event(db, spid, sptitle, spart, tidal_id, tidal_title, tidal_artist, isrc, "manual")
+        add_track_sync_event(
+            db,
+            spid,
+            sptitle,
+            spart,
+            target_id,
+            target_title,
+            target_artist,
+            isrc,
+            "manual",
+            target_service=target_service,
+        )
         delete_pending_track(db, pending_id)
     return JSONResponse({"status": "ok"})
 

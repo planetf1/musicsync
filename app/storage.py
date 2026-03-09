@@ -606,6 +606,7 @@ def get_pending_tracks(db: OrmSession) -> list[dict[str, Any]]:
                 "spotify_title": r.spotify_title,
                 "spotify_artist": r.spotify_artist,
                 "isrc": r.isrc,
+                "target_service": r.target_service,
                 "candidates": json.loads(str(r.candidates_json)),
                 "created_at": r.created_at.isoformat(),
             }
@@ -849,6 +850,10 @@ def list_playlist_tracks(
                 "spotify_track_id": r.spotify_track_id,
                 "spotify_title": r.spotify_title,
                 "spotify_artist": r.spotify_artist,
+                "target_service": r.target_service,
+                "target_track_id": r.target_track_id,
+                "target_title": r.target_title,
+                "target_artist": r.target_artist,
                 "tidal_track_id": r.tidal_track_id,
                 "tidal_title": r.tidal_title,
                 "tidal_artist": r.tidal_artist,
@@ -1098,7 +1103,7 @@ def list_synced_tracks(
 ) -> tuple[list[dict[str, Any]], int]:
     from sqlalchemy import func, or_
 
-    q = db.query(TrackMap).filter(TrackMap.tidal_id.isnot(None))
+    q = db.query(TrackMap).filter(TrackMap.target_id.isnot(None))
     if search:
         s = f"%{search.lower()}%"
         q = q.filter(
@@ -1149,6 +1154,12 @@ def list_synced_tracks(
                 "spotify_title": r.spotify_title,
                 "spotify_artist": r.spotify_artist,
                 "spotify_artist_id": r.spotify_artist_id,
+                "target_service": r.target_service,
+                "target_id": r.target_id,
+                "target_title": r.target_title,
+                "target_artist": r.target_artist,
+                "target_artist_id": r.target_artist_id,
+                "target_duration": r.target_duration,
                 "tidal_id": r.tidal_id,
                 "tidal_title": r.tidal_title,
                 "tidal_artist": r.tidal_artist,

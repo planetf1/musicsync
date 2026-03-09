@@ -139,7 +139,7 @@ Then open:
     Apple Music with ISRC-first matching.
   - "Sync Liked Tracks to Apple Music" adds your Spotify liked tracks to your
     Apple Music library.
-  - Note: Apple Music does not support artist following via API.
+  - "Create/Update Followed Artists Playlist" creates a fallback playlist on Apple Music containing your followed artists' tracks (since Apple Music does not support artist following via API).
 
 ### Review & browse
 
@@ -232,7 +232,7 @@ Capabilities differ by target service due to API surface area and reliability.
     limits around ~10k per category may apply.
 
 - Apple Music (current target)
-  - Implemented: playlists (create/update), liked tracks (add to library).
+  - Implemented: playlists (create/update), liked tracks (add to library), and a fallback playlist for followed artists.
     Uses JWT authentication (ES256) with MusicKit Developer Token + Music User
     Token (via MusicKit JS).
   - Matching: ISRC-first, then fuzzy title/artist/duration scoring.
