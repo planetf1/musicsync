@@ -1439,6 +1439,268 @@ def _run_sync_playlists_job(job_id: str, limit: int = 0) -> None:
         _job_set(job_id, state="error", error=str(e))
 
 
+def _run_sync_apple_playlists_job(job_id: str, limit: int = 0) -> None:
+    """Sync user-owned Spotify playlists to Apple Music."""
+    _job_set(job_id, state="running", started_at=datetime.now(UTC).isoformat())
+    try:
+        # Check Spotify auth
+        try:
+            get_spotify_client()
+            me = call_spotify(lambda sp: sp.me()) or {}
+            my_spotify_user_id = (me.get("id") or "").strip()
+        except Exception as e:
+            _job_set(job_id, state="error", error=str(e))
+            return
+
+        # Check Apple Music auth
+        try:
+            apple_client = get_apple_client()
+            storefront = apple_client.get_storefront()
+        except Exception as e:
+            _job_set(job_id, state="error", error=str(e))
+            return
+
+        # Fetch user-owned Spotify playlists
+        playlists: list[dict[str, Any]] = []
+        offset = 0
+        page_size = 50
+        while True:
+            page = (
+                call_spotify(
+                    lambda sp, offset=offset, page_size=page_size: sp.current_user_playlists(
+                        limit=page_size, offset=offset
+                    )
+                )
+                or {}
+            )
+            items = page.get("items") or []
+            for pl in items:
+                owner = pl.get("owner") or {}
+                if my_spotify_user_id and (owner.get("id") or "").strip() != my_spotify_user_id:
+                    continue  # only manually created (owned) playlists
+                pid = pl.get("id")
+                name = pl.get("name")
+                if pid and name:
+                    playlists.append({"id": pid, "name": name})
+            offset += len(items)
+            if limit and len(playlists) >= limit:
+                playlists = playlists[:limit]
+                break
+            if not page.get("next"):
+                break
+
+        total = len(playlists)
+        processed = 0
+        created = 0
+        updated = 0
+        _job_set(job_id, total=total, processed=processed, created=created, updated=updated)
+
+        for pl in playlists:
+            sp_pl_id = pl["id"]
+            sp_pl_name = pl["name"]
+            try:
+                # Ensure we have an Apple Music playlist mapped/created
+                apple_pl_id: str | None = None
+                with SessionLocal() as db:
+                    m = get_playlist_map(db, sp_pl_id, target_service="apple")
+                    if m and m.get("target_id"):
+                        apple_pl_id = str(m["target_id"])
+
+                preexisting = apple_pl_id is not None
+                did_modify = False
+
+                if not apple_pl_id:
+                    # Create new Apple Music playlist
+                    apple_pl = apple_client.ensure_playlist(sp_pl_name, f"Synced from Spotify: {sp_pl_id}")
+                    apple_pl_id = apple_pl["id"]
+                    created += 1
+
+                # TODO: Get existing Apple Music playlist tracks to skip duplicates
+                # For now, we'll rely on Apple Music's duplicate handling
+                existing_ids: set[str] = set()
+
+                # Fetch Spotify playlist tracks in order
+                sp_track_ids: list[str] = []
+                sp_tracks_meta: dict[str, dict[str, Any]] = {}
+                off2 = 0
+                while True:
+                    page = (
+                        call_spotify(
+                            lambda sp, sp_pl_id=sp_pl_id, off2=off2: sp.playlist_tracks(
+                                sp_pl_id, limit=100, offset=off2
+                            )
+                        )
+                        or {}
+                    )
+                    items = page.get("items") or []
+                    for it in items:
+                        t = it.get("track") or {}
+                        tid = t.get("id")
+                        if not tid:
+                            continue
+                        sp_track_ids.append(tid)
+                        name = t.get("name")
+                        artists = t.get("artists") or []
+                        artist_name = artists[0]["name"] if artists else ""
+                        artist_id = artists[0].get("id") if artists and isinstance(artists[0], dict) else None
+                        duration_ms = t.get("duration_ms")
+                        dur = int(duration_ms / 1000) if duration_ms else None
+                        isrc = (t.get("external_ids") or {}).get("isrc")
+                        sp_tracks_meta[tid] = {
+                            "title": name,
+                            "artist": artist_name,
+                            "artist_id": artist_id,
+                            "duration": dur,
+                            "isrc": isrc,
+                        }
+                    off2 += len(items)
+                    if not page.get("next"):
+                        break
+
+                # Map Spotify tracks to Apple Music catalog IDs
+                apple_to_add_ordered: list[str] = []
+                sid_to_meta: dict[str, dict[str, Any]] = {}
+
+                for sid in sp_track_ids:
+                    meta = sp_tracks_meta.get(sid) or {}
+                    apple_track: dict[str, Any] | None = None
+
+                    # Try ISRC-first match
+                    if meta.get("isrc"):
+                        try:
+                            apple_track = apple_client.search_by_isrc(meta["isrc"], storefront)
+                        except Exception:
+                            pass
+
+                    # Fallback to fuzzy search
+                    if not apple_track:
+                        try:
+                            candidates = apple_client.search_track(
+                                title=meta.get("title") or "",
+                                artist=meta.get("artist") or "",
+                                duration_s=meta.get("duration"),
+                                storefront=storefront,
+                                limit=10,
+                            )
+                            if candidates:
+                                # Score candidates using existing helper
+                                ranked: list[dict[str, Any]] = []
+                                for c in candidates:
+                                    score = _score_track_candidate(
+                                        meta.get("title") or "",
+                                        meta.get("artist") or "",
+                                        meta.get("isrc"),
+                                        meta.get("duration"),
+                                        {
+                                            "id": c["id"],
+                                            "title": c["name"],
+                                            "artists": c["artists"],
+                                            "duration": (
+                                                int(c["duration_ms"] / 1000) if c.get("duration_ms") else None
+                                            ),
+                                            "isrc": c.get("isrc"),
+                                        },
+                                    )
+                                    c2 = dict(c)
+                                    c2["score"] = float(score)
+                                    ranked.append(c2)
+                                ranked.sort(key=lambda x: float(x.get("score", 0.0)), reverse=True)
+                                top = ranked[0] if ranked else None
+                                if top and float(top.get("score", 0.0)) >= 80.0:
+                                    apple_track = top
+                        except Exception:
+                            pass
+
+                    if apple_track:
+                        apple_to_add_ordered.append(apple_track["id"])
+                        sid_to_meta[sid] = {
+                            "apple_id": apple_track["id"],
+                            "apple_title": apple_track.get("name"),
+                            "apple_artist": (apple_track["artists"][0] if apple_track.get("artists") else None),
+                        }
+
+                # Add tracks to Apple Music playlist
+                to_add_final: list[str] = [aid for aid in apple_to_add_ordered if aid not in existing_ids]
+                _log.info(
+                    "[job %s] Playlist '%s' (%s): mapped=%d existing=%d to_add=%d",
+                    job_id,
+                    sp_pl_name,
+                    apple_pl_id or "unknown",
+                    len(apple_to_add_ordered),
+                    len(existing_ids),
+                    len(to_add_final),
+                )
+
+                added_count = 0
+                if to_add_final and apple_pl_id:
+                    try:
+                        result = apple_client.add_tracks_to_playlist(apple_pl_id, to_add_final)
+                        added_count = result.succeeded
+                        did_modify = added_count > 0
+                    except Exception:
+                        pass
+
+                _log.info(
+                    "[job %s] Playlist '%s' (%s): added_to_apple=%d",
+                    job_id,
+                    sp_pl_name,
+                    apple_pl_id or "unknown",
+                    added_count,
+                )
+
+                if preexisting and did_modify:
+                    updated += 1
+
+                # Update mapping record
+                with SessionLocal() as db:
+                    upsert_playlist_map(
+                        db,
+                        sp_pl_id,
+                        sp_pl_name,
+                        None,
+                        None,
+                        target_service="apple",
+                        target_id=apple_pl_id,
+                        target_name=sp_pl_name,
+                    )
+                    # Replace playlist tracks snapshot
+                    entries: list[dict[str, Any]] = []
+                    for idx, sid in enumerate(sp_track_ids, start=1):
+                        meta = sp_tracks_meta.get(sid) or {}
+                        ameta = sid_to_meta.get(sid) or {}
+                        entries.append(
+                            {
+                                "position": idx,
+                                "spotify_track_id": sid,
+                                "spotify_title": meta.get("title") or "",
+                                "spotify_artist": meta.get("artist") or "",
+                                "spotify_duration": meta.get("duration"),
+                                "isrc": meta.get("isrc"),
+                                "target_track_id": ameta.get("apple_id"),
+                                "target_title": ameta.get("apple_title"),
+                                "target_artist": ameta.get("apple_artist"),
+                            }
+                        )
+                    replace_playlist_tracks(db, sp_pl_id, entries, target_service="apple")
+
+            except Exception:
+                pass
+            finally:
+                processed += 1
+                _job_set(job_id, processed=processed, created=created, updated=updated)
+
+        _job_set(
+            job_id,
+            state="done",
+            finished_at=datetime.now(UTC).isoformat(),
+            processed=processed,
+            created=created,
+            updated=updated,
+        )
+    except Exception as e:
+        _job_set(job_id, state="error", error=str(e))
+
+
 @app.post("/sync/tracks/start")
 async def start_sync_tracks(request: Request):
     limit_param = request.query_params.get("limit")
@@ -1476,6 +1738,30 @@ async def start_sync_playlists(request: Request):
 
 @app.get("/sync/playlists/status")
 async def sync_playlists_status(job_id: str):
+    with _jobs_lock:
+        data = _jobs.get(job_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="job not found")
+    return JSONResponse(data)
+
+
+@app.post("/sync/apple/playlists/start")
+async def start_sync_apple_playlists(request: Request):
+    """Start syncing user-owned Spotify playlists to Apple Music."""
+    limit_param = request.query_params.get("limit")
+    try:
+        limit = int(limit_param) if limit_param else 0
+    except ValueError:
+        limit = 0
+    job_id = str(uuid.uuid4())
+    _job_set(job_id, state="pending", limit=limit)
+    threading.Thread(target=_run_sync_apple_playlists_job, args=(job_id, limit), daemon=True).start()
+    return JSONResponse({"job_id": job_id})
+
+
+@app.get("/sync/apple/playlists/status")
+async def sync_apple_playlists_status(job_id: str):
+    """Get status of Apple Music playlist sync job."""
     with _jobs_lock:
         data = _jobs.get(job_id)
     if not data:

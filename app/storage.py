@@ -693,6 +693,8 @@ def upsert_playlist_map(
     tidal_id: str | None,
     tidal_name: str | None,
     target_service: str = "tidal",
+    target_id: str | None = None,
+    target_name: str | None = None,
 ) -> None:
     """Upsert playlist mapping. For backwards compat, tidal_* params are kept."""
     m = (
@@ -703,13 +705,17 @@ def upsert_playlist_map(
     if not m:
         m = PlaylistMap(spotify_id=spotify_id, spotify_name=spotify_name, target_service=target_service)
         db.add(m)
-    # Store in legacy TIDAL columns
-    m.tidal_id = tidal_id
-    m.tidal_name = tidal_name
-    # Also store in generic target_ columns
-    m.target_id = tidal_id if target_service == "tidal" else m.target_id
-    m.target_name = tidal_name if target_service == "tidal" else m.target_name
-    m.last_synced_at = datetime.utcnow() if (tidal_id or m.target_id) else None
+    # Store in legacy TIDAL columns if TIDAL service
+    if target_service == "tidal":
+        m.tidal_id = tidal_id
+        m.tidal_name = tidal_name
+        m.target_id = tidal_id
+        m.target_name = tidal_name
+    else:
+        # For non-TIDAL services (Apple), use target_* params
+        m.target_id = target_id
+        m.target_name = target_name
+    m.last_synced_at = datetime.utcnow() if (m.tidal_id or m.target_id) else None
     db.commit()
 
 
@@ -726,19 +732,32 @@ def get_playlist_map(db: OrmSession, spotify_id: str, target_service: str = "tid
         "spotify_name": m.spotify_name,
         "tidal_id": m.tidal_id,
         "tidal_name": m.tidal_name,
+        "target_id": m.target_id,
+        "target_name": m.target_name,
+        "target_service": m.target_service,
         "last_synced_at": m.last_synced_at.isoformat() if m.last_synced_at else None,
     }
 
 
-def replace_playlist_tracks(db: OrmSession, playlist_spotify_id: str, entries: list[dict[str, Any]]) -> None:
+def replace_playlist_tracks(
+    db: OrmSession,
+    playlist_spotify_id: str,
+    entries: list[dict[str, Any]],
+    target_service: str = "tidal",
+) -> None:
     """Replace the stored track snapshot for a playlist with the given ordered entries.
 
     Each entry should include: position (int, 1-based), spotify_track_id, spotify_title, spotify_artist,
-    and optional tidal_track_id, tidal_title, tidal_artist, isrc.
+    and optional tidal_track_id, tidal_title, tidal_artist, target_track_id, target_title, target_artist, isrc.
     """
     from sqlalchemy import delete
 
-    db.execute(delete(PlaylistTrack).where(PlaylistTrack.playlist_spotify_id == playlist_spotify_id))
+    db.execute(
+        delete(PlaylistTrack).where(
+            PlaylistTrack.playlist_spotify_id == playlist_spotify_id,
+            PlaylistTrack.target_service == target_service,
+        )
+    )
     now = datetime.utcnow()
     for e in entries:
         dur_raw = e.get("spotify_duration")
@@ -746,6 +765,7 @@ def replace_playlist_tracks(db: OrmSession, playlist_spotify_id: str, entries: l
         db.add(
             PlaylistTrack(
                 playlist_spotify_id=playlist_spotify_id,
+                target_service=target_service,
                 position=int(e.get("position", 0) or 0),
                 spotify_track_id=str(e.get("spotify_track_id")),
                 spotify_title=str(e.get("spotify_title") or ""),
@@ -753,6 +773,9 @@ def replace_playlist_tracks(db: OrmSession, playlist_spotify_id: str, entries: l
                 tidal_track_id=(str(e.get("tidal_track_id")) if e.get("tidal_track_id") else None),
                 tidal_title=(str(e.get("tidal_title")) if e.get("tidal_title") else None),
                 tidal_artist=(str(e.get("tidal_artist")) if e.get("tidal_artist") else None),
+                target_track_id=(str(e.get("target_track_id")) if e.get("target_track_id") else None),
+                target_title=(str(e.get("target_title")) if e.get("target_title") else None),
+                target_artist=(str(e.get("target_artist")) if e.get("target_artist") else None),
                 isrc=(str(e.get("isrc")) if e.get("isrc") else None),
                 spotify_duration=sd,
                 last_synced_at=now,
