@@ -63,6 +63,10 @@ dev = [
   "ruff>=0.5",
   "mypy>=1.10",
   "pre-commit>=3.7",
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+  "pytest-cov>=6.0",
+  "pytest-mock>=3.14",
 ]
 
 [tool.ruff]
@@ -93,3 +97,14 @@ ignore_missing_imports = true  # third-party libs like tidalapi/spotipy lack typ
 strict_optional = true
 no_implicit_optional = true
 check_untyped_defs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = "-ra -q --strict-markers --maxfail=3"
+markers = [
+  "unit: Unit tests (fast, no external dependencies)",
+  "integration: Integration tests (may mock external APIs)",
+]
